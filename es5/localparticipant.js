@@ -499,6 +499,10 @@ var LocalParticipant = /** @class */ (function (_super) {
             throw E.INVALID_TYPE('encodingParameters', 'EncodingParameters, null or undefined');
         }
         if (encodingParameters) {
+            if (this._signaling.getParameters().adaptiveSimulcast && encodingParameters.maxVideoBitrate) {
+                // eslint-disable-next-line new-cap
+                throw E.INVALID_TYPE('encodingParameters', 'encodingParameters.maxVideoBitrate is not compatible with "preferredVideoCodecs=auto"');
+            }
             ['maxAudioBitrate', 'maxVideoBitrate'].forEach(function (prop) {
                 if (typeof encodingParameters[prop] !== 'undefined'
                     && typeof encodingParameters[prop] !== 'number'

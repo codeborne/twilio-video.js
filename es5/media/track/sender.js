@@ -14,10 +14,27 @@ var __extends = (this && this.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
+var __read = (this && this.__read) || function (o, n) {
+    var m = typeof Symbol === "function" && o[Symbol.iterator];
+    if (!m) return o;
+    var i = m.call(o), r, ar = [], e;
+    try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+    }
+    catch (error) { e = { error: error }; }
+    finally {
+        try {
+            if (r && !r.done && (m = i["return"])) m.call(i);
+        }
+        finally { if (e) throw e.error; }
+    }
+    return ar;
+};
 var MediaTrackTransceiver = require('./transceiver');
 /**
  * A {@link MediaTrackSender} represents one or more local RTCRtpSenders.
  * @extends MediaTrackTransceiver
+ * @emits MediaTrackSender#replaced
  */
 var MediaTrackSender = /** @class */ (function (_super) {
     __extends(MediaTrackSender, _super);
@@ -33,6 +50,9 @@ var MediaTrackSender = /** @class */ (function (_super) {
             },
             _senders: {
                 value: new Set()
+            },
+            _senderToPublisherHintCallbacks: {
+                value: new Map()
             },
             isPublishing: {
                 get: function () {
@@ -71,7 +91,7 @@ var MediaTrackSender = /** @class */ (function (_super) {
         return Promise.all(clones.map(function (clone) {
             return clone.setMediaStreamTrack(mediaStreamTrack.clone());
         }).concat(senders.map(function (sender) {
-            return sender.replaceTrack(mediaStreamTrack);
+            return _this._replaceTrack(sender, mediaStreamTrack);
         }))).finally(function () {
             _this._track = mediaStreamTrack;
         });
@@ -79,10 +99,14 @@ var MediaTrackSender = /** @class */ (function (_super) {
     /**
      * Add an RTCRtpSender.
      * @param {RTCRtpSender} sender
+     * @param {?()=>Promise<string>} publisherHintCallback
      * @returns {this}
      */
-    MediaTrackSender.prototype.addSender = function (sender) {
+    MediaTrackSender.prototype.addSender = function (sender, publisherHintCallback) {
         this._senders.add(sender);
+        if (publisherHintCallback) {
+            this._senderToPublisherHintCallbacks.set(sender, publisherHintCallback);
+        }
         return this;
     };
     /**
@@ -92,9 +116,33 @@ var MediaTrackSender = /** @class */ (function (_super) {
      */
     MediaTrackSender.prototype.removeSender = function (sender) {
         this._senders.delete(sender);
+        this._senderToPublisherHintCallbacks.delete(sender);
         return this;
+    };
+    /**
+     * Applies given encodings, or resets encodings if none specified.
+     * @param {Array<{enabled: boolean, layer_index: number}>|null} encodings
+     * @returns {Promise<string>}
+     */
+    MediaTrackSender.prototype.setPublisherHint = function (encodings) {
+        // Note(mpatwardhan): since publisher hint applies only to group rooms we only look at 1st call callback.
+        var _a = __read(Array.from(this._senderToPublisherHintCallbacks.values()), 1), publisherHintCallback = _a[0];
+        return publisherHintCallback ? publisherHintCallback(encodings) : Promise.resolve('COULD_NOT_APPLY_HINT');
+    };
+    MediaTrackSender.prototype._replaceTrack = function (sender, mediaStreamTrack) {
+        var _this = this;
+        return sender.replaceTrack(mediaStreamTrack).then(function (replaceTrackResult) {
+            // clear any publisherHints and apply default encodings.
+            _this.setPublisherHint(null).catch(function () { });
+            _this.emit('replaced');
+            return replaceTrackResult;
+        });
     };
     return MediaTrackSender;
 }(MediaTrackTransceiver));
+/**
+ * The {@link MediaTrackSender} replaced the underlying mediaStreamTrack
+ * @event MediaTrackSender#replaced
+ */
 module.exports = MediaTrackSender;
 //# sourceMappingURL=sender.js.map

@@ -1,9 +1,9 @@
-/*! twilio-video.js 2.18.1
+/*! twilio-video.js 2.19.0
 
 The following license applies to all parts of this software except as
 documented below.
 
-    Copyright (C) 2019-2021 Twilio, inc.
+    Copyright (C) 2019-2022 Twilio, inc.
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -83,7 +83,7 @@ function createCancelableRoomPromise(getLocalTracks, createLocalParticipant, cre
 }
 module.exports = createCancelableRoomPromise;
 
-},{"./util/cancelablepromise":119}],2:[function(require,module,exports){
+},{"./util/cancelablepromise":120}],2:[function(require,module,exports){
 'use strict';
 var MediaStreamTrack = require('@twilio/webrtc').MediaStreamTrack;
 var _a = require('@twilio/webrtc/lib/util'), guessBrowser = _a.guessBrowser, guessBrowserVersion = _a.guessBrowserVersion;
@@ -272,6 +272,15 @@ function connect(token, options) {
     // The warning is displayed only for the first call to connect() per browser session.
     // Additionally, the options that are no longer needed will be removed.
     deprecateOptions(options, log, deprecatedConnectOptionsProps);
+    var adaptiveSimulcast = options.preferredVideoCodecs === 'auto';
+    if (adaptiveSimulcast) {
+        // NOTE(mpatwardhan): enable adaptiveSimulcast.
+        options.preferredVideoCodecs = [{ codec: 'VP8', simulcast: true, adaptiveSimulcast: true }];
+    }
+    if (options.maxVideoBitrate && adaptiveSimulcast) {
+        log.error('ConnectOptions "maxVideoBitrate" is not compatible with "preferredVideoCodecs=auto"');
+        return CancelablePromise.reject(E.ILLEGAL_INVOKE('connect', 'ConnectOptions "maxVideoBitrate" is not compatible with "preferredVideoCodecs=auto"'));
+    }
     options = Object.assign({
         automaticSubscription: true,
         createLocalTracks: createLocalTracks,
@@ -394,7 +403,7 @@ function connect(token, options) {
     var encodingParameters = new EncodingParametersImpl({
         maxAudioBitrate: options.maxAudioBitrate,
         maxVideoBitrate: options.maxVideoBitrate
-    });
+    }, adaptiveSimulcast);
     var preferredCodecs = {
         audio: options.preferredAudioCodecs.map(normalizeCodecSettings),
         video: options.preferredVideoCodecs.map(normalizeCodecSettings)
@@ -479,6 +488,7 @@ function connect(token, options) {
  *   effect for fixed bitrate codecs; Based on our tests, Chrome, Firefox and Safari
  *   all seem to support an average bitrate range of 20000 bps (20 kbps) to
  *   8000000 bps (8 mbps) for a 720p VideoTrack
+ *   This parameter must not be set when when preferredVideoCodecs is set to `auto`.
  * @property {?string} [name=null] - Set to connect to a {@link Room} by name
  * @property {boolean|NetworkQualityConfiguration} [networkQuality=false] - Whether to enable the Network
  *   Quality API or not. This only takes effect in Group Rooms. Pass a {@link NetworkQualityConfiguration}
@@ -494,8 +504,11 @@ function connect(token, options) {
  *   for the list of supported signaling regions.
  * @property {Array<AudioCodec|AudioCodecSettings>} [preferredAudioCodecs=[]] - Preferred audio codecs;
  *  An empty array preserves the current audio codec preference order.
- * @property {Array<VideoCodec|VideoCodecSettings>} [preferredVideoCodecs=[]] -
- *  Preferred video codecs; An empty array preserves the current video codec
+ * @property {Array<VideoCodec|VideoCodecSettings>|VideoEncodingMode} [preferredVideoCodecs=[]] -
+ *  Preferred video codecs; when set to 'VideoEncodingMode.Auto', SDK manages the video codec,
+ *  by preferring VP8 simulcast in group rooms. It also enables adaptive simulcast, which allows SDK
+ *  to turn off simulcast layers that are not needed for efficient bandwidth and CPU usage.
+ *  An empty array preserves the current video codec.
  *  preference order. If you want to set a preferred video codec on a Group Room,
  *  you will need to create the Room using the REST API and set the
  *  <code>VideoCodecs</code> property.
@@ -632,6 +645,14 @@ var AudioCodec = {
     opus: 'opus',
     PCMA: 'PCMA',
     PCMU: 'PCMU'
+};
+/**
+ * Names of the supported VideoEncodingMode.
+ * @enum {string}
+ */
+// eslint-disable-next-line
+var VideoEncodingMode = {
+    Auto: 'auto',
 };
 /**
  * Names of the supported video codecs.
@@ -971,7 +992,7 @@ function normalizeCodecSettings(nameOrSettings) {
 }
 module.exports = connect;
 
-},{"./cancelableroompromise":1,"./createlocaltracks":4,"./encodingparameters":9,"./localparticipant":12,"./media/track/es5":14,"./networkqualityconfiguration":42,"./room":54,"./signaling/v2":68,"./util":126,"./util/cancelablepromise":119,"./util/constants":120,"./util/eventobserver":124,"./util/insightspublisher":127,"./util/insightspublisher/null":128,"./util/log":130,"./util/validate":145,"@twilio/webrtc":152,"@twilio/webrtc/lib/util":165}],3:[function(require,module,exports){
+},{"./cancelableroompromise":1,"./createlocaltracks":4,"./encodingparameters":9,"./localparticipant":12,"./media/track/es5":14,"./networkqualityconfiguration":42,"./room":54,"./signaling/v2":68,"./util":127,"./util/cancelablepromise":120,"./util/constants":121,"./util/eventobserver":125,"./util/insightspublisher":128,"./util/insightspublisher/null":129,"./util/log":131,"./util/validate":146,"@twilio/webrtc":153,"@twilio/webrtc/lib/util":166}],3:[function(require,module,exports){
 'use strict';
 var defaultCreateLocalTracks = require('./createlocaltracks');
 var _a = require('./util/constants'), DEFAULT_LOG_LEVEL = _a.DEFAULT_LOG_LEVEL, DEFAULT_LOGGER_NAME = _a.DEFAULT_LOGGER_NAME;
@@ -1084,7 +1105,7 @@ module.exports = {
     video: createLocalVideoTrack
 };
 
-},{"./createlocaltracks":4,"./util/constants":120}],4:[function(require,module,exports){
+},{"./createlocaltracks":4,"./util/constants":121}],4:[function(require,module,exports){
 'use strict';
 var asLocalTrack = require('./util').asLocalTrack;
 var buildLogLevels = require('./util').buildLogLevels;
@@ -1245,7 +1266,7 @@ function createLocalTracks(options) {
  */
 module.exports = createLocalTracks;
 
-},{"./media/track/es5":14,"./util":126,"./util/constants":120,"./util/log":130,"./webaudio/workaround180748":149,"@twilio/webrtc":152}],5:[function(require,module,exports){
+},{"./media/track/es5":14,"./util":127,"./util/constants":121,"./util/log":131,"./webaudio/workaround180748":150,"@twilio/webrtc":153}],5:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -1444,7 +1465,7 @@ var DataTrackSender = /** @class */ (function (_super) {
 }(DataTrackTransceiver));
 module.exports = DataTrackSender;
 
-},{"../util":126,"./transceiver":7}],7:[function(require,module,exports){
+},{"../util":127,"./transceiver":7}],7:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -1504,7 +1525,7 @@ var DataTrackTransceiver = /** @class */ (function (_super) {
 }(TrackTransceiver));
 module.exports = DataTrackTransceiver;
 
-},{"../transceiver":115}],8:[function(require,module,exports){
+},{"../transceiver":116}],8:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -1601,7 +1622,7 @@ var DataTransport = /** @class */ (function (_super) {
  */
 module.exports = DataTransport;
 
-},{"events":179}],9:[function(require,module,exports){
+},{"events":180}],9:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -1633,8 +1654,9 @@ var EncodingParametersImpl = /** @class */ (function (_super) {
     /**
      * Construct an {@link EncodingParametersImpl}.
      * @param {EncodingParamters} encodingParameters - Initial {@link EncodingParameters}
+     * @param {Boolean} adaptiveSimulcast - true if adaptive simulcast was enabled by connect options.
      */
-    function EncodingParametersImpl(encodingParameters) {
+    function EncodingParametersImpl(encodingParameters, adaptiveSimulcast) {
         var _this = _super.call(this) || this;
         encodingParameters = Object.assign({
             maxAudioBitrate: null,
@@ -1648,6 +1670,9 @@ var EncodingParametersImpl = /** @class */ (function (_super) {
             maxVideoBitrate: {
                 value: encodingParameters.maxVideoBitrate,
                 writable: true
+            },
+            adaptiveSimulcast: {
+                value: adaptiveSimulcast
             }
         });
         return _this;
@@ -1695,13 +1720,13 @@ var EncodingParametersImpl = /** @class */ (function (_super) {
  */
 module.exports = EncodingParametersImpl;
 
-},{"events":179}],10:[function(require,module,exports){
+},{"events":180}],10:[function(require,module,exports){
 'use strict';
 var EventEmitter = require('events').EventEmitter;
 var hidePrivateAndCertainPublicPropertiesInClass = require('./util').hidePrivateAndCertainPublicPropertiesInClass;
 module.exports = hidePrivateAndCertainPublicPropertiesInClass(EventEmitter, ['domain']);
 
-},{"./util":126,"events":179}],11:[function(require,module,exports){
+},{"./util":127,"events":180}],11:[function(require,module,exports){
 'use strict';
 Object.defineProperty(exports, "__esModule", { value: true });
 var preflighttest_1 = require("./preflight/preflighttest");
@@ -1764,7 +1789,7 @@ module.exports = {
     LocalDataTrack: LocalDataTrack
 };
 
-},{"../package.json":200,"./connect":2,"./createlocaltrack":3,"./createlocaltracks":4,"./media/track/es5":14,"./preflight/preflighttest":48,"./util/support":141,"./vendor/loglevel":146}],12:[function(require,module,exports){
+},{"../package.json":201,"./connect":2,"./createlocaltrack":3,"./createlocaltracks":4,"./media/track/es5":14,"./preflight/preflighttest":48,"./util/support":142,"./vendor/loglevel":147}],12:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -2266,6 +2291,10 @@ var LocalParticipant = /** @class */ (function (_super) {
             throw E.INVALID_TYPE('encodingParameters', 'EncodingParameters, null or undefined');
         }
         if (encodingParameters) {
+            if (this._signaling.getParameters().adaptiveSimulcast && encodingParameters.maxVideoBitrate) {
+                // eslint-disable-next-line new-cap
+                throw E.INVALID_TYPE('encodingParameters', 'encodingParameters.maxVideoBitrate is not compatible with "preferredVideoCodecs=auto"');
+            }
             ['maxAudioBitrate', 'maxVideoBitrate'].forEach(function (prop) {
                 if (typeof encodingParameters[prop] !== 'undefined'
                     && typeof encodingParameters[prop] !== 'number'
@@ -2439,7 +2468,7 @@ function getTrackPublication(trackPublications, track) {
 }
 module.exports = LocalParticipant;
 
-},{"./media/track/es5":14,"./media/track/localaudiotrackpublication":20,"./media/track/localdatatrackpublication":22,"./media/track/localvideotrackpublication":26,"./participant":43,"./util":126,"./util/constants":120,"./util/validate":145,"@twilio/webrtc":152}],13:[function(require,module,exports){
+},{"./media/track/es5":14,"./media/track/localaudiotrackpublication":20,"./media/track/localdatatrackpublication":22,"./media/track/localvideotrackpublication":26,"./participant":43,"./util":127,"./util/constants":121,"./util/validate":146,"@twilio/webrtc":153}],13:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -2628,7 +2657,7 @@ function LocalAudioTrack(mediaStreamTrack, options) {
 inherits(LocalAudioTrack, LocalAudioTrackClass);
 module.exports = LocalAudioTrack;
 
-},{"../localaudiotrack":19,"util":198}],16:[function(require,module,exports){
+},{"../localaudiotrack":19,"util":199}],16:[function(require,module,exports){
 // eslint-disable-next-line no-warning-comments
 // TODO(mroberts): Remove this when we go to the next major version. This is
 // only in place so that we can support ES6 classes without requiring `new`.
@@ -2643,7 +2672,7 @@ function LocalDataTrack(options) {
 inherits(LocalDataTrack, LocalDataTrackClass);
 module.exports = LocalDataTrack;
 
-},{"../localdatatrack":21,"util":198}],17:[function(require,module,exports){
+},{"../localdatatrack":21,"util":199}],17:[function(require,module,exports){
 // eslint-disable-next-line no-warning-comments
 // TODO(mroberts): Remove this when we go to the next major version. This is
 // only in place so that we can support ES6 classes without requiring `new`.
@@ -2658,7 +2687,7 @@ function LocalVideoTrack(mediaStreamTrack, options) {
 inherits(LocalVideoTrack, LocalVideoTrackClass);
 module.exports = LocalVideoTrack;
 
-},{"../localvideotrack":25,"util":198}],18:[function(require,module,exports){
+},{"../localvideotrack":25,"util":199}],18:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -2770,7 +2799,7 @@ var Track = /** @class */ (function (_super) {
  */
 module.exports = Track;
 
-},{"../../eventemitter":10,"../../util":126,"../../util/constants":120,"../../util/log":130}],19:[function(require,module,exports){
+},{"../../eventemitter":10,"../../util":127,"../../util/constants":121,"../../util/log":131}],19:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -3469,6 +3498,8 @@ function restartWhenInadvertentlyStopped(localMediaTrack) {
             // after the MediaStreamTrack is re-acquired.
             var promise = (trackChangeInProgress && trackChangeInProgress.promise) || Promise.resolve();
             return promise.finally(function () { return localMediaRestartDeferreds.resolveDeferred(kind); });
+        }).catch(function (ex) {
+            log.error("error in maybeRestart: " + ex.message);
         });
     }
     function onMute() {
@@ -3511,7 +3542,7 @@ function restartWhenInadvertentlyStopped(localMediaTrack) {
 }
 module.exports = mixinLocalMediaTrack;
 
-},{"../../util":126,"../../util/constants":120,"../../util/detectsilentaudio":121,"../../util/detectsilentvideo":122,"../../util/documentvisibilitymonitor.js":123,"../../util/localmediarestartdeferreds":129,"../../webaudio/workaround180748":149,"./sender":37,"@twilio/webrtc":152,"@twilio/webrtc/lib/util":165}],24:[function(require,module,exports){
+},{"../../util":127,"../../util/constants":121,"../../util/detectsilentaudio":122,"../../util/detectsilentvideo":123,"../../util/documentvisibilitymonitor.js":124,"../../util/localmediarestartdeferreds":130,"../../webaudio/workaround180748":150,"./sender":37,"@twilio/webrtc":153,"@twilio/webrtc/lib/util":166}],24:[function(require,module,exports){
 /* eslint new-cap:0 */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -3625,7 +3656,7 @@ var LocalTrackPublication = /** @class */ (function (_super) {
 }(TrackPublication));
 module.exports = LocalTrackPublication;
 
-},{"../../util/constants":120,"./trackpublication":38}],25:[function(require,module,exports){
+},{"../../util/constants":121,"./trackpublication":38}],25:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -3972,7 +4003,7 @@ function workaroundSilentLocalVideo(localVideoTrack, doc) {
  */
 module.exports = LocalVideoTrack;
 
-},{"../../util":126,"../../util/detectsilentvideo":122,"./localmediatrack":23,"./videotrack":41,"@twilio/webrtc/lib/util":165}],26:[function(require,module,exports){
+},{"../../util":127,"../../util/detectsilentvideo":123,"./localmediatrack":23,"./videotrack":41,"@twilio/webrtc/lib/util":166}],26:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -4382,7 +4413,7 @@ function shimMediaElement(el, onUnintentionallyPaused) {
 }
 module.exports = MediaTrack;
 
-},{"../../util":126,"../../util/localmediarestartdeferreds":129,"./":18,"@twilio/webrtc":152,"@twilio/webrtc/lib/util":165}],28:[function(require,module,exports){
+},{"../../util":127,"../../util/localmediarestartdeferreds":130,"./":18,"@twilio/webrtc":153,"@twilio/webrtc/lib/util":166}],28:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -4774,7 +4805,7 @@ var RemoteDataTrack = /** @class */ (function (_super) {
  */
 module.exports = RemoteDataTrack;
 
-},{"../../util/constants":120,"./":18}],32:[function(require,module,exports){
+},{"../../util/constants":121,"./":18}],32:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -5122,7 +5153,7 @@ function playIfPausedWhileInBackground(remoteMediaTrack) {
  */
 module.exports = mixinRemoteMediaTrack;
 
-},{"../../util/constants":120,"../../util/documentvisibilitymonitor.js":123,"@twilio/webrtc/lib/util":165}],34:[function(require,module,exports){
+},{"../../util/constants":121,"../../util/documentvisibilitymonitor.js":124,"@twilio/webrtc/lib/util":166}],34:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -5414,6 +5445,12 @@ var RemoteVideoTrack = /** @class */ (function (_super) {
             _invisibleElements: {
                 value: new WeakSet(),
             },
+            _elToPipCallbacks: {
+                value: new WeakMap(),
+            },
+            _elToPipWindows: {
+                value: new WeakMap(),
+            },
             _turnOffTimer: {
                 value: new Timeout(function () {
                     _this._setRenderHint({ enabled: false });
@@ -5507,6 +5544,45 @@ var RemoteVideoTrack = /** @class */ (function (_super) {
         }
         return this;
     };
+    RemoteVideoTrack.prototype._unObservePip = function (el) {
+        var pipCallbacks = this._elToPipCallbacks.get(el);
+        if (pipCallbacks) {
+            el.removeEventListener('enterpictureinpicture', pipCallbacks.onEnterPip);
+            el.removeEventListener('leavepictureinpicture', pipCallbacks.onLeavePip);
+            this._elToPipCallbacks.delete(el);
+        }
+    };
+    RemoteVideoTrack.prototype._observePip = function (el) {
+        var _this = this;
+        var pipCallbacks = this._elToPipCallbacks.get(el);
+        if (!pipCallbacks) {
+            var onEnterPip = function (event) { return _this._onEnterPip(event, el); };
+            var onLeavePip = function (event) { return _this._onLeavePip(event, el); };
+            var onResizePip = function (event) { return _this._onResizePip(event, el); };
+            el.addEventListener('enterpictureinpicture', onEnterPip);
+            el.addEventListener('leavepictureinpicture', onLeavePip);
+            this._elToPipCallbacks.set(el, { onEnterPip: onEnterPip, onLeavePip: onLeavePip, onResizePip: onResizePip });
+        }
+    };
+    RemoteVideoTrack.prototype._onEnterPip = function (event, videoEl) {
+        this._log.debug('onEnterPip');
+        var pipWindow = event.pictureInPictureWindow;
+        this._elToPipWindows.set(videoEl, pipWindow);
+        var onResizePip = this._elToPipCallbacks.get(videoEl).onResizePip;
+        pipWindow.addEventListener('resize', onResizePip);
+        maybeUpdateEnabledHint(this);
+    };
+    RemoteVideoTrack.prototype._onLeavePip = function (event, videoEl) {
+        this._log.debug('onLeavePip');
+        this._elToPipWindows.delete(videoEl);
+        var onResizePip = this._elToPipCallbacks.get(videoEl).onResizePip;
+        var pipWindow = event.pictureInPictureWindow;
+        pipWindow.removeEventListener('resize', onResizePip);
+        maybeUpdateEnabledHint(this);
+    };
+    RemoteVideoTrack.prototype._onResizePip = function () {
+        maybeUpdateDimensionHint(this);
+    };
     RemoteVideoTrack.prototype.attach = function (el) {
         var result = _super.prototype.attach.call(this, el);
         if (this._clientTrackSwitchOffControl === 'auto') {
@@ -5519,6 +5595,7 @@ var RemoteVideoTrack = /** @class */ (function (_super) {
         if (this._enableDocumentVisibilityTurnOff) {
             this._documentVisibilityTurnOffCleanup = this._documentVisibilityTurnOffCleanup || setupDocumentVisibilityTurnOff(this);
         }
+        this._observePip(result);
         return result;
     };
     RemoteVideoTrack.prototype.detach = function (el) {
@@ -5529,6 +5606,7 @@ var RemoteVideoTrack = /** @class */ (function (_super) {
             _this._intersectionObserver.unobserve(element);
             _this._resizeObserver.unobserve(element);
             _this._invisibleElements.delete(element);
+            _this._unObservePip(element);
         });
         if (this._attachments.size === 0) {
             if (this._documentVisibilityTurnOffCleanup) {
@@ -5627,32 +5705,39 @@ function setupDocumentVisibilityTurnOff(removeVideoTrack) {
         documentVisibilityMonitor.offVisibilityChange(1, onVisibilityChanged);
     };
 }
-function maybeUpdateEnabledHint(removeVideoTrack) {
-    if (removeVideoTrack._clientTrackSwitchOffControl !== 'auto') {
+function maybeUpdateEnabledHint(remoteVideoTrack) {
+    if (remoteVideoTrack._clientTrackSwitchOffControl !== 'auto') {
         return;
     }
-    var visibleElements = removeVideoTrack._getAllAttachedElements().filter(function (el) { return !removeVideoTrack._invisibleElements.has(el); });
-    var enabled = document.visibilityState === 'visible' && visibleElements.length > 0;
+    var visibleElements = remoteVideoTrack._getAllAttachedElements().filter(function (el) { return !remoteVideoTrack._invisibleElements.has(el); });
+    var pipWindows = remoteVideoTrack._getAllAttachedElements().filter(function (el) { return remoteVideoTrack._elToPipWindows.has(el); });
+    // even when document is invisible we may have track playing in pip window.
+    var enabled = pipWindows.length > 0 || (document.visibilityState === 'visible' && visibleElements.length > 0);
     if (enabled === true) {
-        removeVideoTrack._turnOffTimer.clear();
-        removeVideoTrack._setRenderHint({ enabled: true });
+        remoteVideoTrack._turnOffTimer.clear();
+        remoteVideoTrack._setRenderHint({ enabled: true });
     }
-    else if (!removeVideoTrack._turnOffTimer.isSet) {
+    else if (!remoteVideoTrack._turnOffTimer.isSet) {
         // set the track to be turned off after some delay.
-        removeVideoTrack._turnOffTimer.start();
+        remoteVideoTrack._turnOffTimer.start();
     }
 }
-function maybeUpdateDimensionHint(removeVideoTrack) {
-    if (removeVideoTrack._contentPreferencesMode !== 'auto') {
+function maybeUpdateDimensionHint(remoteVideoTrack) {
+    if (remoteVideoTrack._contentPreferencesMode !== 'auto') {
         return;
     }
-    var visibleElements = removeVideoTrack._getAllAttachedElements().filter(function (el) { return !removeVideoTrack._invisibleElements.has(el); });
-    if (visibleElements.length > 0) {
-        var _a = __read(visibleElements.sort(function (el1, el2) {
+    var visibleElements = remoteVideoTrack._getAllAttachedElements().filter(function (el) { return !remoteVideoTrack._invisibleElements.has(el); });
+    var pipElements = remoteVideoTrack._getAllAttachedElements().map(function (el) {
+        var pipWindow = remoteVideoTrack._elToPipWindows.get(el);
+        return pipWindow ? { clientHeight: pipWindow.height, clientWidth: pipWindow.width } : { clientHeight: 0, clientWidth: 0 };
+    });
+    var totalElements = visibleElements.concat(pipElements);
+    if (totalElements.length > 0) {
+        var _a = __read(totalElements.sort(function (el1, el2) {
             return el2.clientHeight + el2.clientWidth - el1.clientHeight - el1.clientWidth - 1;
         }), 1), _b = _a[0], clientHeight = _b.clientHeight, clientWidth = _b.clientWidth;
         var renderDimensions = { height: clientHeight, width: clientWidth };
-        removeVideoTrack._setRenderHint({ renderDimensions: renderDimensions });
+        remoteVideoTrack._setRenderHint({ renderDimensions: renderDimensions });
     }
 }
 /**
@@ -5697,7 +5782,7 @@ function maybeUpdateDimensionHint(removeVideoTrack) {
  */
 module.exports = RemoteVideoTrack;
 
-},{"../../util/documentvisibilitymonitor.js":123,"../../util/nullobserver.js":133,"../../util/timeout":142,"./remotemediatrack":33,"./videotrack":41}],36:[function(require,module,exports){
+},{"../../util/documentvisibilitymonitor.js":124,"../../util/nullobserver.js":134,"../../util/timeout":143,"./remotemediatrack":33,"./videotrack":41}],36:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -5786,10 +5871,27 @@ var __extends = (this && this.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
+var __read = (this && this.__read) || function (o, n) {
+    var m = typeof Symbol === "function" && o[Symbol.iterator];
+    if (!m) return o;
+    var i = m.call(o), r, ar = [], e;
+    try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+    }
+    catch (error) { e = { error: error }; }
+    finally {
+        try {
+            if (r && !r.done && (m = i["return"])) m.call(i);
+        }
+        finally { if (e) throw e.error; }
+    }
+    return ar;
+};
 var MediaTrackTransceiver = require('./transceiver');
 /**
  * A {@link MediaTrackSender} represents one or more local RTCRtpSenders.
  * @extends MediaTrackTransceiver
+ * @emits MediaTrackSender#replaced
  */
 var MediaTrackSender = /** @class */ (function (_super) {
     __extends(MediaTrackSender, _super);
@@ -5805,6 +5907,9 @@ var MediaTrackSender = /** @class */ (function (_super) {
             },
             _senders: {
                 value: new Set()
+            },
+            _senderToPublisherHintCallbacks: {
+                value: new Map()
             },
             isPublishing: {
                 get: function () {
@@ -5843,7 +5948,7 @@ var MediaTrackSender = /** @class */ (function (_super) {
         return Promise.all(clones.map(function (clone) {
             return clone.setMediaStreamTrack(mediaStreamTrack.clone());
         }).concat(senders.map(function (sender) {
-            return sender.replaceTrack(mediaStreamTrack);
+            return _this._replaceTrack(sender, mediaStreamTrack);
         }))).finally(function () {
             _this._track = mediaStreamTrack;
         });
@@ -5851,10 +5956,14 @@ var MediaTrackSender = /** @class */ (function (_super) {
     /**
      * Add an RTCRtpSender.
      * @param {RTCRtpSender} sender
+     * @param {?()=>Promise<string>} publisherHintCallback
      * @returns {this}
      */
-    MediaTrackSender.prototype.addSender = function (sender) {
+    MediaTrackSender.prototype.addSender = function (sender, publisherHintCallback) {
         this._senders.add(sender);
+        if (publisherHintCallback) {
+            this._senderToPublisherHintCallbacks.set(sender, publisherHintCallback);
+        }
         return this;
     };
     /**
@@ -5864,10 +5973,34 @@ var MediaTrackSender = /** @class */ (function (_super) {
      */
     MediaTrackSender.prototype.removeSender = function (sender) {
         this._senders.delete(sender);
+        this._senderToPublisherHintCallbacks.delete(sender);
         return this;
+    };
+    /**
+     * Applies given encodings, or resets encodings if none specified.
+     * @param {Array<{enabled: boolean, layer_index: number}>|null} encodings
+     * @returns {Promise<string>}
+     */
+    MediaTrackSender.prototype.setPublisherHint = function (encodings) {
+        // Note(mpatwardhan): since publisher hint applies only to group rooms we only look at 1st call callback.
+        var _a = __read(Array.from(this._senderToPublisherHintCallbacks.values()), 1), publisherHintCallback = _a[0];
+        return publisherHintCallback ? publisherHintCallback(encodings) : Promise.resolve('COULD_NOT_APPLY_HINT');
+    };
+    MediaTrackSender.prototype._replaceTrack = function (sender, mediaStreamTrack) {
+        var _this = this;
+        return sender.replaceTrack(mediaStreamTrack).then(function (replaceTrackResult) {
+            // clear any publisherHints and apply default encodings.
+            _this.setPublisherHint(null).catch(function () { });
+            _this.emit('replaced');
+            return replaceTrackResult;
+        });
     };
     return MediaTrackSender;
 }(MediaTrackTransceiver));
+/**
+ * The {@link MediaTrackSender} replaced the underlying mediaStreamTrack
+ * @event MediaTrackSender#replaced
+ */
 module.exports = MediaTrackSender;
 
 },{"./transceiver":39}],38:[function(require,module,exports){
@@ -5967,7 +6100,7 @@ var TrackPublication = /** @class */ (function (_super) {
  */
 module.exports = TrackPublication;
 
-},{"../../eventemitter":10,"../../util":126,"../../util/constants":120,"../../util/log":130}],39:[function(require,module,exports){
+},{"../../eventemitter":10,"../../util":127,"../../util/constants":121,"../../util/log":131}],39:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -6034,7 +6167,7 @@ var MediaTrackTransceiver = /** @class */ (function (_super) {
 }(TrackTransceiver));
 module.exports = MediaTrackTransceiver;
 
-},{"../../transceiver":115}],40:[function(require,module,exports){
+},{"../../transceiver":116}],40:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -6189,7 +6322,7 @@ var VideoProcessorEventObserver = /** @class */ (function (_super) {
 }(EventEmitter));
 module.exports = VideoProcessorEventObserver;
 
-},{"../../util/constants":120,"events":179}],41:[function(require,module,exports){
+},{"../../util/constants":121,"events":180}],41:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -6703,7 +6836,7 @@ function dimensionsChanged(track, elem) {
  */
 module.exports = VideoTrack;
 
-},{"../../util/constants":120,"./mediatrack":27,"./videoprocessoreventobserver":40}],42:[function(require,module,exports){
+},{"../../util/constants":121,"./mediatrack":27,"./videoprocessoreventobserver":40}],42:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -6802,7 +6935,7 @@ var NetworkQualityConfigurationImpl = /** @class */ (function (_super) {
 }(EventEmitter));
 module.exports = NetworkQualityConfigurationImpl;
 
-},{"./util":126,"./util/constants":120,"events":179}],43:[function(require,module,exports){
+},{"./util":127,"./util/constants":121,"events":180}],43:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -7419,7 +7552,7 @@ function reemitTrackPublicationEvents(participant, publication) {
 }
 module.exports = Participant;
 
-},{"./eventemitter":10,"./media/track/remoteaudiotrack":29,"./media/track/remoteaudiotrackpublication":30,"./media/track/remotedatatrack":31,"./media/track/remotedatatrackpublication":32,"./media/track/remotevideotrack":35,"./media/track/remotevideotrackpublication":36,"./util":126}],44:[function(require,module,exports){
+},{"./eventemitter":10,"./media/track/remoteaudiotrack":29,"./media/track/remoteaudiotrackpublication":30,"./media/track/remotedatatrack":31,"./media/track/remotedatatrackpublication":32,"./media/track/remotevideotrack":35,"./media/track/remotevideotrackpublication":36,"./util":127}],44:[function(require,module,exports){
 "use strict";
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -7616,7 +7749,7 @@ function getTurnCredentials(token, wsServer) {
 }
 exports.getTurnCredentials = getTurnCredentials;
 
-},{"../twilioconnection.js":116,"../util/constants":120,"events":179}],46:[function(require,module,exports){
+},{"../twilioconnection.js":117,"../util/constants":121,"events":180}],46:[function(require,module,exports){
 "use strict";
 var __read = (this && this.__read) || function (o, n) {
     var m = typeof Symbol === "function" && o[Symbol.iterator];
@@ -8322,7 +8455,7 @@ function runPreflight(token, options) {
 }
 exports.runPreflight = runPreflight;
 
-},{"../eventemitter":10,"../util":126,"../util/constants":120,"../util/eventobserver":124,"../util/insightspublisher":127,"../util/log":130,"../util/movingaveragedelta":131,"../util/sid":140,"./getCombinedConnectionStats":44,"./getturncredentials":45,"./makestat":46,"./mos":47,"./syntheticaudio":49,"./syntheticvideo":50,"./timer":51}],49:[function(require,module,exports){
+},{"../eventemitter":10,"../util":127,"../util/constants":121,"../util/eventobserver":125,"../util/insightspublisher":128,"../util/log":131,"../util/movingaveragedelta":132,"../util/sid":141,"./getCombinedConnectionStats":44,"./getturncredentials":45,"./makestat":46,"./mos":47,"./syntheticaudio":49,"./syntheticvideo":50,"./timer":51}],49:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.syntheticAudio = void 0;
@@ -8345,7 +8478,7 @@ function syntheticAudio() {
 }
 exports.syntheticAudio = syntheticAudio;
 
-},{"../webaudio/audiocontext":147}],50:[function(require,module,exports){
+},{"../webaudio/audiocontext":148}],50:[function(require,module,exports){
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.syntheticVideo = void 0;
@@ -8510,7 +8643,7 @@ var QueueingEventEmitter = /** @class */ (function (_super) {
 }(EventEmitter));
 module.exports = QueueingEventEmitter;
 
-},{"events":179}],53:[function(require,module,exports){
+},{"events":180}],53:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -9347,7 +9480,7 @@ function handleSignalingEvents(room, signaling) {
 }
 module.exports = Room;
 
-},{"./eventemitter":10,"./remoteparticipant":53,"./stats/statsreport":112,"./util":126}],55:[function(require,module,exports){
+},{"./eventemitter":10,"./remoteparticipant":53,"./stats/statsreport":113,"./util":127}],55:[function(require,module,exports){
 /* eslint consistent-return:0 */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -9517,7 +9650,7 @@ var Signaling = /** @class */ (function (_super) {
 }(StateMachine));
 module.exports = Signaling;
 
-},{"../statemachine":84,"./participant":58,"./room":62}],56:[function(require,module,exports){
+},{"../statemachine":85,"./participant":58,"./room":62}],56:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -9953,7 +10086,7 @@ var ParticipantSignaling = /** @class */ (function (_super) {
  */
 module.exports = ParticipantSignaling;
 
-},{"../statemachine":84,"../stats/networkqualitystats":99}],59:[function(require,module,exports){
+},{"../statemachine":85,"../stats/networkqualitystats":100}],59:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -10026,7 +10159,7 @@ var RecordingSignaling = /** @class */ (function (_super) {
  */
 module.exports = RecordingSignaling;
 
-},{"events":179}],60:[function(require,module,exports){
+},{"events":180}],60:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -10452,7 +10585,7 @@ function maybeUpdateState(roomSignaling) {
 }
 module.exports = RoomSignaling;
 
-},{"../statemachine":84,"../util":126,"../util/constants":120,"../util/log":130,"../util/timeout":142,"../util/twilio-video-errors":143,"./recording":59}],63:[function(require,module,exports){
+},{"../statemachine":85,"../util":127,"../util/constants":121,"../util/log":131,"../util/timeout":143,"../util/twilio-video-errors":144,"./recording":59}],63:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -10635,7 +10768,7 @@ var TrackSignaling = /** @class */ (function (_super) {
  */
 module.exports = TrackSignaling;
 
-},{"events":179}],64:[function(require,module,exports){
+},{"events":180}],64:[function(require,module,exports){
 'use strict';
 var CancelablePromise = require('../../util/cancelablepromise');
 var DefaultPeerConnectionManager = require('./peerconnectionmanager');
@@ -10649,6 +10782,7 @@ function createCancelableRoomSignalingPromise(token, wsServer, localParticipant,
         RoomV2: DefaultRoomV2,
         Transport: DefaultTransport
     }, options);
+    var adaptiveSimulcast = preferredCodecs.video[0] && preferredCodecs.video[0].adaptiveSimulcast === true;
     var PeerConnectionManager = options.PeerConnectionManager, RoomV2 = options.RoomV2, Transport = options.Transport, iceServers = options.iceServers, log = options.log;
     var peerConnectionManager = new PeerConnectionManager(encodingParameters, preferredCodecs, options);
     var trackSenders = flatMap(localParticipant.tracks, function (trackV2) { return [trackV2.trackTransceiver]; });
@@ -10689,6 +10823,7 @@ function createCancelableRoomSignalingPromise(token, wsServer, localParticipant,
         var renderHints = !!bandwidthProfile &&
             (options.clientTrackSwitchOffControl !== 'disabled' || options.contentPreferencesMode !== 'disabled');
         var transportOptions = Object.assign({
+            adaptiveSimulcast: adaptiveSimulcast,
             automaticSubscription: automaticSubscription,
             dominantSpeaker: dominantSpeaker,
             environment: environment,
@@ -10751,7 +10886,7 @@ function createCancelableRoomSignalingPromise(token, wsServer, localParticipant,
 }
 module.exports = createCancelableRoomSignalingPromise;
 
-},{"../../util":126,"../../util/cancelablepromise":119,"../../util/twilio-video-errors":143,"./peerconnectionmanager":75,"./room":80,"./twilioconnectiontransport":83}],65:[function(require,module,exports){
+},{"../../util":127,"../../util/cancelablepromise":120,"../../util/twilio-video-errors":144,"./peerconnectionmanager":75,"./room":81,"./twilioconnectiontransport":84}],65:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -10897,7 +11032,7 @@ var IceBox = /** @class */ (function () {
 }());
 module.exports = IceBox;
 
-},{"../../util/filter":125}],67:[function(require,module,exports){
+},{"../../util/filter":126}],67:[function(require,module,exports){
 'use strict';
 var _a = require('../../util/constants'), ICE_ACTIVITY_CHECK_PERIOD_MS = _a.ICE_ACTIVITY_CHECK_PERIOD_MS, ICE_INACTIVITY_THRESHOLD_MS = _a.ICE_INACTIVITY_THRESHOLD_MS;
 /**
@@ -11034,7 +11169,7 @@ var IceConnectionMonitor = /** @class */ (function () {
 }());
 module.exports = IceConnectionMonitor;
 
-},{"../../util/constants":120}],68:[function(require,module,exports){
+},{"../../util/constants":121}],68:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -11118,7 +11253,9 @@ var __extends = (this && this.__extends) || (function () {
 })();
 var LocalParticipantSignaling = require('../localparticipant');
 var LocalTrackPublicationV2 = require('./localtrackpublication');
-var isDeepEqual = require('../../util').isDeepEqual;
+var DEFAULT_LOG_LEVEL = require('../../util/constants').DEFAULT_LOG_LEVEL;
+var Log = require('../../util/log');
+var _a = require('../../util'), buildLogLevels = _a.buildLogLevels, isDeepEqual = _a.isDeepEqual;
 /**
  * @extends ParticipantSignaling
  * @property {BandwidthProfileOptions} bandwidthProfile
@@ -11137,9 +11274,11 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
     function LocalParticipantV2(encodingParameters, networkQualityConfiguration, options) {
         var _this = this;
         options = Object.assign({
+            logLevel: DEFAULT_LOG_LEVEL,
             LocalTrackPublicationV2: LocalTrackPublicationV2
         }, options);
         _this = _super.call(this) || this;
+        var logLevels = buildLogLevels(options.logLevel);
         Object.defineProperties(_this, {
             _bandwidthProfile: {
                 value: null,
@@ -11157,6 +11296,11 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
             },
             _LocalTrackPublicationV2: {
                 value: options.LocalTrackPublicationV2
+            },
+            _log: {
+                value: options.log
+                    ? options.log.createLog('default', _this)
+                    : new Log('default', _this, logLevels, options.loggerName)
             },
             _publishedRevision: {
                 writable: true,
@@ -11201,6 +11345,9 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
         });
         return _this;
     }
+    LocalParticipantV2.prototype.toString = function () {
+        return "[LocalParticipantSignaling: " + this.sid + "]";
+    };
     /**
      * Set the signalingRegion.
      * @param {string} signalingRegion.
@@ -11223,6 +11370,13 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
             this._bandwidthProfileRevision++;
             this.didUpdate();
         }
+    };
+    /**
+     * returns current {@link EncodingParametersImpl}.
+     * @returns {EncodingParametersImpl}
+     */
+    LocalParticipantV2.prototype.getParameters = function () {
+        return this._encodingParameters;
     };
     /**
      * Set the {@link EncodingParameters}.
@@ -11344,6 +11498,21 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
     LocalParticipantV2.prototype.setNetworkQualityConfiguration = function (networkQualityConfiguration) {
         this.networkQualityConfiguration.update(networkQualityConfiguration);
     };
+    /**
+     * updates encodings for simulcast layers.
+     * @param {Track.SID} trackSid
+     * @param {Array<{enabled: boolean, layer_index: number}>} encodings
+     * @returns {Promise<string>} string indicating result of the operation. can be one of
+     *  "OK", "INVALID_HINT", "COULD_NOT_APPLY_HINT", "UNKNOWN_TRACK"
+     */
+    LocalParticipantV2.prototype.setPublisherHint = function (trackSid, encodings) {
+        var trackSignaling = Array.from(this.tracks.values()).find(function (trackPub) { return trackPub.sid === trackSid; });
+        if (!trackSignaling) {
+            this._log.warn("track:" + trackSid + " not found");
+            return Promise.resolve('UNKNOWN_TRACK');
+        }
+        return trackSignaling.trackTransceiver.setPublisherHint(encodings);
+    };
     return LocalParticipantV2;
 }(LocalParticipantSignaling));
 /**
@@ -11381,7 +11550,7 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
  */
 module.exports = LocalParticipantV2;
 
-},{"../../util":126,"../localparticipant":56,"./localtrackpublication":70}],70:[function(require,module,exports){
+},{"../../util":127,"../../util/constants":121,"../../util/log":131,"../localparticipant":56,"./localtrackpublication":70}],70:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -11463,7 +11632,7 @@ var LocalTrackPublicationV2 = /** @class */ (function (_super) {
  */
 module.exports = LocalTrackPublicationV2;
 
-},{"../../util/twilio-video-errors":143,"../localtrackpublication":57}],71:[function(require,module,exports){
+},{"../../util/twilio-video-errors":144,"../localtrackpublication":57}],71:[function(require,module,exports){
 /* eslint callback-return:0 */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -11533,19 +11702,17 @@ var MediaSignaling = /** @class */ (function (_super) {
         var receiverPromise = this._getReceiver(id).then(function (receiver) {
             if (receiver.kind !== 'data') {
                 _this._log.error('Expected a DataTrackReceiver');
-                throw new Error('Expected a DataTrackReceiver');
             }
             if (_this._receiverPromise !== receiverPromise) {
                 return;
             }
             try {
                 _this._transport = receiver.toDataTransport();
+                _this.emit('ready', _this._transport);
             }
             catch (ex) {
-                _this._log.error('Failed to toDataTransport');
-                throw new Error('Failed to toDataTransport');
+                _this._log.error("Failed to toDataTransport: " + ex.message);
             }
-            _this.emit('ready', _this._transport);
             receiver.once('close', function () { return _this._teardown(); });
         });
         this._receiverPromise = receiverPromise;
@@ -11562,7 +11729,7 @@ var MediaSignaling = /** @class */ (function (_super) {
 }(EventEmitter));
 module.exports = MediaSignaling;
 
-},{"events":179}],72:[function(require,module,exports){
+},{"events":180}],72:[function(require,module,exports){
 /* eslint callback-return:0 */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -11721,7 +11888,7 @@ function next(monitor) {
  */
 module.exports = NetworkQualityMonitor;
 
-},{"../../stats/peerconnectionreportfactory":102,"events":179}],73:[function(require,module,exports){
+},{"../../stats/peerconnectionreportfactory":103,"events":180}],73:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -11967,7 +12134,7 @@ function createNetworkQualityInputsMessage(networkQualityInputs, networkQualityR
 }
 module.exports = NetworkQualitySignaling;
 
-},{"../../util/asyncvar":117,"./mediasignaling":71}],74:[function(require,module,exports){
+},{"../../util/asyncvar":118,"./mediasignaling":71}],74:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -12007,13 +12174,14 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from) {
 };
 var DefaultBackoff = require('backoff');
 var _a = require('@twilio/webrtc'), DefaultMediaStream = _a.MediaStream, DefaultRTCIceCandidate = _a.RTCIceCandidate, DefaultRTCPeerConnection = _a.RTCPeerConnection, DefaultRTCSessionDescription = _a.RTCSessionDescription, getStatistics = _a.getStats;
-var guessBrowser = require('@twilio/webrtc/lib/util').guessBrowser;
+var util = require('@twilio/webrtc/lib/util');
+var guessBrowser = util.guessBrowser;
 var getSdpFormat = require('@twilio/webrtc/lib/util/sdp').getSdpFormat;
 var _b = require('../../util/constants'), DEFAULT_ICE_GATHERING_TIMEOUT_MS = _b.DEFAULT_ICE_GATHERING_TIMEOUT_MS, DEFAULT_LOG_LEVEL = _b.DEFAULT_LOG_LEVEL, DEFAULT_SESSION_TIMEOUT_SEC = _b.DEFAULT_SESSION_TIMEOUT_SEC, iceRestartBackoffConfig = _b.iceRestartBackoffConfig;
-var _c = require('../../util/sdp'), createCodecMapForMediaSection = _c.createCodecMapForMediaSection, disableRtx = _c.disableRtx, enableDtxForOpus = _c.enableDtxForOpus, getMediaSections = _c.getMediaSections, removeSSRCAttributes = _c.removeSSRCAttributes, revertSimulcastForNonVP8MediaSections = _c.revertSimulcastForNonVP8MediaSections, setBitrateParameters = _c.setBitrateParameters, setCodecPreferences = _c.setCodecPreferences, setSimulcast = _c.setSimulcast, unifiedPlanAddOrRewriteNewTrackIds = _c.unifiedPlanAddOrRewriteNewTrackIds, unifiedPlanAddOrRewriteTrackIds = _c.unifiedPlanAddOrRewriteTrackIds, unifiedPlanFilterLocalCodecs = _c.unifiedPlanFilterLocalCodecs;
+var _c = require('../../util/sdp'), createCodecMapForMediaSection = _c.createCodecMapForMediaSection, disableRtx = _c.disableRtx, enableDtxForOpus = _c.enableDtxForOpus, getMediaSections = _c.getMediaSections, removeSSRCAttributes = _c.removeSSRCAttributes, revertSimulcast = _c.revertSimulcast, setBitrateParameters = _c.setBitrateParameters, setCodecPreferences = _c.setCodecPreferences, setSimulcast = _c.setSimulcast, unifiedPlanAddOrRewriteNewTrackIds = _c.unifiedPlanAddOrRewriteNewTrackIds, unifiedPlanAddOrRewriteTrackIds = _c.unifiedPlanAddOrRewriteTrackIds, unifiedPlanFilterLocalCodecs = _c.unifiedPlanFilterLocalCodecs;
 var DefaultTimeout = require('../../util/timeout');
 var _d = require('../../util/twilio-video-errors'), MediaClientLocalDescFailedError = _d.MediaClientLocalDescFailedError, MediaClientRemoteDescFailedError = _d.MediaClientRemoteDescFailedError;
-var _e = require('../../util'), buildLogLevels = _e.buildLogLevels, getPlatform = _e.getPlatform, isChromeScreenShareTrack = _e.isChromeScreenShareTrack, oncePerTick = _e.oncePerTick;
+var _e = require('../../util'), buildLogLevels = _e.buildLogLevels, getPlatform = _e.getPlatform, isChromeScreenShareTrack = _e.isChromeScreenShareTrack, oncePerTick = _e.oncePerTick, defer = _e.defer;
 var IceBox = require('./icebox');
 var DefaultIceConnectionMonitor = require('./iceconnectionmonitor.js');
 var DataTrackReceiver = require('../../data/receiver');
@@ -12092,7 +12260,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             isRTCRtpSenderParamsSupported: isRTCRtpSenderParamsSupported,
             logLevel: DEFAULT_LOG_LEVEL,
             offerOptions: {},
-            revertSimulcastForNonVP8MediaSections: revertSimulcastForNonVP8MediaSections,
+            revertSimulcast: revertSimulcast,
             sessionTimeout: DEFAULT_SESSION_TIMEOUT_SEC * 1000,
             setBitrateParameters: setBitrateParameters,
             setCodecPreferences: setCodecPreferences,
@@ -12230,6 +12398,9 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             _rtpSenders: {
                 value: new Map()
             },
+            _rtpNewSenders: {
+                value: new Set()
+            },
             _iceConnectionMonitor: {
                 value: new options.IceConnectionMonitor(peerConnection)
             },
@@ -12278,9 +12449,6 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
                         return codec === 'opus' && dtx;
                     })
             },
-            _shouldApplySimulcast: {
-                value: (isChrome || isSafari) && preferredCodecs.video.some(function (codecSettings) { return codecSettings.codec.toLowerCase() === 'vp8' && codecSettings.simulcast; })
-            },
             _queuedDescription: {
                 writable: true,
                 value: null
@@ -12322,8 +12490,8 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             _setSimulcast: {
                 value: options.setSimulcast
             },
-            _revertSimulcastForNonVP8MediaSections: {
-                value: options.revertSimulcastForNonVP8MediaSections
+            _revertSimulcast: {
+                value: options.revertSimulcast
             },
             _RTCIceCandidate: {
                 value: options.RTCIceCandidate
@@ -12349,6 +12517,9 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             _trackMatcher: {
                 writable: true,
                 value: null
+            },
+            _mediaTrackSenderToPublisherHints: {
+                value: new Map()
             },
             id: {
                 enumerable: true,
@@ -12379,6 +12550,29 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
     PeerConnectionV2.prototype.toString = function () {
         return "[PeerConnectionV2 #" + this._instanceId + ": " + this.id + "]";
     };
+    PeerConnectionV2.prototype.setEffectiveAdaptiveSimulcast = function (effectiveAdaptiveSimulcast) {
+        this._log.debug('Setting setEffectiveAdaptiveSimulcast: ', effectiveAdaptiveSimulcast);
+        // clear adaptive simulcast from codec preferences if it was set.
+        this._preferredVideoCodecs.forEach(function (cs) {
+            if ('adaptiveSimulcast' in cs) {
+                cs.adaptiveSimulcast = effectiveAdaptiveSimulcast;
+            }
+        });
+    };
+    Object.defineProperty(PeerConnectionV2.prototype, "_shouldApplySimulcast", {
+        get: function () {
+            if (!isChrome && !isSafari) {
+                return false;
+            }
+            // adaptiveSimulcast is set to false after connected message is received if other party does not support it.
+            var simulcast = this._preferredVideoCodecs.some(function (cs) {
+                return cs.codec.toLowerCase() === 'vp8' && cs.simulcast && cs.adaptiveSimulcast !== false;
+            });
+            return simulcast;
+        },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(PeerConnectionV2.prototype, "connectionState", {
         /**
          * The {@link PeerConnectionV2}'s underlying RTCPeerConnection's RTCPeerConnectionState
@@ -12423,35 +12617,97 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(PeerConnectionV2.prototype, "_isAdaptiveSimulcastEnabled", {
+        /**
+         * Whether adaptive simulcast is enabled.
+         * @returns {boolean}
+         */
+        get: function () {
+            var adaptiveSimulcastEntry = this._preferredVideoCodecs.find(function (cs) { return 'adaptiveSimulcast' in cs; });
+            return adaptiveSimulcastEntry && adaptiveSimulcastEntry.adaptiveSimulcast === true;
+        },
+        enumerable: false,
+        configurable: true
+    });
     /**
-     * Updates scaleResolutionDownBy for encoding layers.
-     * @param {number} width
-     * @param {number} height
+     * @param {MediaStreamTrack} track
      * @param {Array<RTCRtpEncodingParameters>} encodings
+     * @param {boolean} trackReplaced
+     * @returns {boolean} true if encodings were updated.
      */
-    PeerConnectionV2.prototype._updateEncodings = function (width, height, encodings) {
-        var _this = this;
-        // NOTE(mpatwardhan): All the simulcast encodings in Safari have
-        // the same resolution. So, here we make sure that the lower layers have
-        // lower resolution, as seen in Chrome.
-        var pixelsToMaxActiveLayers = [
-            { pixels: 960 * 540, maxActiveLayers: 3 },
-            { pixels: 480 * 270, maxActiveLayers: 2 },
-            { pixels: 0, maxActiveLayers: 1 }
-        ];
-        var trackPixels = width * height;
-        var activeLayersInfo = pixelsToMaxActiveLayers.find(function (layer) { return trackPixels >= layer.pixels; });
-        var activeLayers = Math.min(encodings.length, activeLayersInfo.maxActiveLayers);
-        encodings.forEach(function (encoding, i) {
-            encoding.active = i < activeLayers;
-            if (encoding.active) {
-                encoding.scaleResolutionDownBy = 1 << (activeLayers - i - 1);
-            }
-            else {
-                delete encoding.scaleResolutionDownBy;
-            }
-            _this._log.debug("setting up simulcast layer " + i + " with active = " + encoding.active + ", scaleResolutionDownBy = " + encoding.scaleResolutionDownBy);
-        });
+    PeerConnectionV2.prototype._maybeUpdateEncodings = function (track, encodings, trackReplaced) {
+        if (trackReplaced === void 0) { trackReplaced = false; }
+        if (track.kind !== 'video') {
+            return false;
+        }
+        var browser = util.guessBrowser();
+        // Note(mpatwardhan): always configure encodings for safari.
+        // for chrome only when adaptive simulcast enabled.
+        if (browser === 'safari' || (browser === 'chrome' && this._isAdaptiveSimulcastEnabled)) {
+            this._updateEncodings(track, encodings, trackReplaced);
+            return true;
+        }
+        return false;
+    };
+    /**
+     * Configures with default encodings depending on track type and resolution.
+     * Default configuration sets some encodings to disabled, and for others set scaleResolutionDownBy
+     * values. When trackReplaced is set to true, it will clear 'active' for any encodings that
+     * needs to be enabled.
+     * @param {MediaStreamTrack} track
+     * @param {Array<RTCRtpEncodingParameters>} encodings
+     * @param {boolean} trackReplaced
+     */
+    PeerConnectionV2.prototype._updateEncodings = function (track, encodings, trackReplaced) {
+        if (this._isChromeScreenShareTrack(track)) {
+            var screenShareActiveLayerConfig_1 = [
+                { scaleResolutionDownBy: 1 },
+                { scaleResolutionDownBy: 1 }
+            ];
+            encodings.forEach(function (encoding, i) {
+                var activeLayerConfig = screenShareActiveLayerConfig_1[i];
+                if (activeLayerConfig) {
+                    encoding.scaleResolutionDownBy = activeLayerConfig.scaleResolutionDownBy;
+                    if (trackReplaced) {
+                        delete encoding.active;
+                    }
+                }
+                else {
+                    encoding.active = false;
+                    delete encoding.scaleResolutionDownBy;
+                }
+            });
+        }
+        else {
+            var _a = track.getSettings(), width = _a.width, height = _a.height;
+            // NOTE(mpatwardhan): for non-screen share tracks
+            // enable layers depending on track resolutions
+            var pixelsToMaxActiveLayers = [
+                { pixels: 960 * 540, maxActiveLayers: 3 },
+                { pixels: 480 * 270, maxActiveLayers: 2 },
+                { pixels: 0, maxActiveLayers: 1 }
+            ];
+            var trackPixels_1 = width * height;
+            var activeLayersInfo = pixelsToMaxActiveLayers.find(function (layer) { return trackPixels_1 >= layer.pixels; });
+            var activeLayers_1 = Math.min(encodings.length, activeLayersInfo.maxActiveLayers);
+            encodings.forEach(function (encoding, i) {
+                var enabled = i < activeLayers_1;
+                if (enabled) {
+                    encoding.scaleResolutionDownBy = 1 << (activeLayers_1 - i - 1);
+                    if (trackReplaced) {
+                        delete encoding.active;
+                    }
+                }
+                else {
+                    encoding.active = false;
+                    delete encoding.scaleResolutionDownBy;
+                }
+            });
+        }
+        this._log.debug('_updateEncodings:', encodings.map(function (_a, i) {
+            var active = _a.active, scaleResolutionDownBy = _a.scaleResolutionDownBy;
+            return "[" + i + ": " + active + ", " + (scaleResolutionDownBy || 0) + "]";
+        }).join(', '));
     };
     /**
      * Add an ICE candidate to the {@link PeerConnectionV2}.
@@ -12571,7 +12827,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
                 // NOTE(syerrapragada): VMS does not support H264 simulcast. So,
                 // unset simulcast for sections in local offer where corresponding
                 // sections in answer doesn't have vp8 as preferred codec and reapply offer.
-                updatedSdp = _this._revertSimulcastForNonVP8MediaSections(updatedSdp, sdpWithoutSimulcast, offer.sdp);
+                updatedSdp = _this._revertSimulcast(updatedSdp, sdpWithoutSimulcast, offer.sdp);
             }
             // NOTE(mmalavalli): Work around Chromium bug 1074421.
             // https://bugs.chromium.org/p/chromium/issues/detail?id=1074421
@@ -12843,7 +13099,9 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             log.debug("Starting ICE reconnect timeout: " + delay);
             this._iceReconnectTimeout.start();
         }
-        this.offer();
+        this.offer().catch(function (ex) {
+            log.error("offer failed in _initiateIceRestart with: " + ex.message);
+        });
     };
     /**
      * Schedule an ICE Restart.
@@ -13041,7 +13299,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             });
         }
         return this._peerConnection.setLocalDescription(description).catch(function (error) {
-            _this._log.warn("Calling setLocalDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".");
+            _this._log.warn("Calling setLocalDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".", error);
             var errorToThrow = new MediaClientLocalDescFailedError();
             var publishWarning = {
                 message: "Calling setLocalDescription with an RTCSessionDescription of type \"" + description.type + "\" failed",
@@ -13119,8 +13377,13 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             // NOTE(syerrapragada): VMS does not support H264 simulcast. So,
             // unset simulcast for sections in local offer where corresponding
             // sections in answer doesn't have vp8 as preferred codec and reapply offer.
-            if (description.type === 'answer' && _this._shouldApplySimulcast) {
-                var sdpWithoutSimulcastForNonVP8MediaSections = _this._revertSimulcastForNonVP8MediaSections(_this._localDescription.sdp, _this._localDescriptionWithoutSimulcast.sdp, description.sdp);
+            if (description.type === 'answer' && _this._localDescriptionWithoutSimulcast) {
+                // NOTE(mpatwardhan):if we were using adaptive simulcast, and if its not supported by server
+                // revert simulcast even for vp8.
+                var adaptiveSimulcastEntry = _this._preferredVideoCodecs.find(function (cs) { return 'adaptiveSimulcast' in cs; });
+                var revertForAll = !!adaptiveSimulcastEntry && adaptiveSimulcastEntry.adaptiveSimulcast === false;
+                var sdpWithoutSimulcastForNonVP8MediaSections = _this._revertSimulcast(_this._localDescription.sdp, _this._localDescriptionWithoutSimulcast.sdp, description.sdp, revertForAll);
+                _this._localDescriptionWithoutSimulcast = null;
                 if (sdpWithoutSimulcastForNonVP8MediaSections !== _this._localDescription.sdp) {
                     return _this._rollbackAndApplyOffer({
                         type: _this._localDescription.type,
@@ -13137,7 +13400,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
                 negotiationCompleted(_this);
             }
         }, function (error) {
-            _this._log.warn("Calling setRemoteDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".");
+            _this._log.warn("Calling setRemoteDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".", error);
             if (description.sdp) {
                 _this._log.warn("The SDP was " + description.sdp);
             }
@@ -13261,12 +13524,82 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             this._log.warn("Error creating an RTCDataChannel for DataTrack \"" + dataTrackSender.id + "\": " + error.message);
         }
     };
+    PeerConnectionV2.prototype._handleQueuedPublisherHints = function () {
+        var _this = this;
+        if (this._peerConnection.signalingState === 'stable') {
+            this._mediaTrackSenderToPublisherHints.forEach(function (_a, mediaTrackSender) {
+                var deferred = _a.deferred, encodings = _a.encodings;
+                _this._mediaTrackSenderToPublisherHints.delete(mediaTrackSender);
+                _this._setPublisherHint(mediaTrackSender, encodings)
+                    .then(function (result) { return deferred.resolve(result); })
+                    .catch(function (error) { return deferred.reject(error); });
+            });
+        }
+    };
+    /**
+     * updates encodings for simulcast layers of given sender.
+     * @param {RTCRtpSender} sender
+     * @param {Array<{enabled: boolean, layer_index: number}>|null} encodings
+     * @returns {Promise<string>} string indicating result of the operation. can be one of
+     *  "OK", "INVALID_HINT", "COULD_NOT_APPLY_HINT", "UNKNOWN_TRACK"
+     */
+    PeerConnectionV2.prototype._setPublisherHint = function (mediaTrackSender, encodings) {
+        var _this = this;
+        if (isFirefox) {
+            return Promise.resolve('COULD_NOT_APPLY_HINT');
+        }
+        if (this._mediaTrackSenderToPublisherHints.has(mediaTrackSender)) {
+            // skip any stale hint associated with the mediaTrackSender.
+            var queuedHint = this._mediaTrackSenderToPublisherHints.get(mediaTrackSender);
+            queuedHint.deferred.resolve('REQUEST_SKIPPED');
+            this._mediaTrackSenderToPublisherHints.delete(mediaTrackSender);
+        }
+        var sender = this._rtpSenders.get(mediaTrackSender);
+        if (!sender) {
+            this._log.warn('Could not apply publisher hint because RTCRtpSender was not found');
+            return Promise.resolve('UNKNOWN_TRACK');
+        }
+        if (this._peerConnection.signalingState === 'closed') {
+            this._log.warn('Could not apply publisher hint because signalingState was "closed"');
+            return Promise.resolve('COULD_NOT_APPLY_HINT');
+        }
+        if (this._peerConnection.signalingState !== 'stable') {
+            // enqueue this hint to be applied when pc becomes stable.
+            this._log.debug('Queuing up publisher hint because signalingState:', this._peerConnection.signalingState);
+            var deferred = defer();
+            this._mediaTrackSenderToPublisherHints.set(mediaTrackSender, { deferred: deferred, encodings: encodings });
+            return deferred.promise;
+        }
+        var parameters = sender.getParameters();
+        if (encodings !== null) {
+            encodings.forEach(function (_a) {
+                var enabled = _a.enabled, layerIndex = _a.layer_index;
+                if (parameters.encodings.length > layerIndex) {
+                    _this._log.debug("layer:" + layerIndex + ", active:" + parameters.encodings[layerIndex].active + " => " + enabled);
+                    parameters.encodings[layerIndex].active = enabled;
+                }
+                else {
+                    _this._log.warn("invalid layer:" + layerIndex + ", active:" + enabled);
+                }
+            });
+        }
+        // Note(mpatwardhan): after publisher hints are applied, overwrite with default encodings
+        // to disable any encoding that shouldn't have been enabled by publisher_hints.
+        // When encodings===null (that is we are asked to reset encodings for replaceTrack)
+        // along with disabling encodings, clear active flag for encodings that should not be disabled
+        this._maybeUpdateEncodings(sender.track, parameters.encodings, encodings === null /* trackReplaced */);
+        return sender.setParameters(parameters).then(function () { return 'OK'; }).catch(function (error) {
+            _this._log.error('Failed to apply publisher hints:', error);
+            return 'COULD_NOT_APPLY_HINT';
+        });
+    };
     /**
      * Add the {@link MediaTrackSender} to the {@link PeerConnectionV2}.
      * @param {MediaTrackSender} mediaTrackSender
      * @returns {void}
      */
     PeerConnectionV2.prototype.addMediaTrackSender = function (mediaTrackSender) {
+        var _this = this;
         if (this._peerConnection.signalingState === 'closed' || this._rtpSenders.has(mediaTrackSender)) {
             return;
         }
@@ -13279,7 +13612,8 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             var transceiver = this._addOrUpdateTransceiver(mediaTrackSender.track);
             sender = transceiver.sender;
         }
-        mediaTrackSender.addSender(sender);
+        mediaTrackSender.addSender(sender, function (encodings) { return _this._setPublisherHint(mediaTrackSender, encodings); });
+        this._rtpNewSenders.add(sender);
         this._rtpSenders.set(mediaTrackSender, sender);
     };
     /**
@@ -13377,6 +13711,13 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             this._localMediaStream.removeTrack(mediaTrackSender.track);
         }
         mediaTrackSender.removeSender(sender);
+        // clean up any pending publisher hints associated with this mediaTrackSender.
+        if (this._mediaTrackSenderToPublisherHints.has(mediaTrackSender)) {
+            var queuedHint = this._mediaTrackSenderToPublisherHints.get(mediaTrackSender);
+            queuedHint.deferred.resolve('UNKNOWN_TRACK');
+            this._mediaTrackSenderToPublisherHints.delete(mediaTrackSender);
+        }
+        this._rtpNewSenders.delete(sender);
         this._rtpSenders.delete(mediaTrackSender);
     };
     /**
@@ -13605,7 +13946,10 @@ function negotiationCompleted(pcv2) {
         updateRemoteCodecMaps(pcv2);
     }
     if (pcv2._isRTCRtpSenderParamsSupported) {
-        updateEncodingParameters(pcv2);
+        updateEncodingParameters(pcv2).then(function () {
+            // if there any any publisher hints queued, apply them now.
+            pcv2._handleQueuedPublisherHints();
+        });
     }
 }
 /**
@@ -13619,6 +13963,7 @@ function updateEncodingParameters(pcv2) {
         ['audio', maxAudioBitrate],
         ['video', maxVideoBitrate]
     ]);
+    var promises = [];
     pcv2._peerConnection.getSenders().filter(function (sender) { return sender.track; }).forEach(function (sender) {
         var maxBitrate = maxBitrates.get(sender.track.kind);
         var params = sender.getParameters();
@@ -13641,14 +13986,16 @@ function updateEncodingParameters(pcv2) {
             // by RTCRtpSender.setParameters() being rejected.
             params.encodings[0].networkPriority = 'high';
         }
-        if (isSafari && sender.track.kind === 'video') {
-            var _a = sender.track.getSettings(), width = _a.width, height = _a.height;
-            pcv2._updateEncodings(width, height, params.encodings);
-        }
-        sender.setParameters(params).catch(function (error) {
+        // when a sender is reused, delete any active encodings set by server.
+        var trackReplaced = pcv2._rtpNewSenders.has(sender);
+        pcv2._maybeUpdateEncodings(sender.track, params.encodings, trackReplaced);
+        pcv2._rtpNewSenders.delete(sender);
+        var promise = sender.setParameters(params).catch(function (error) {
             pcv2._log.warn("Error while setting encodings parameters for " + sender.track.kind + " Track " + sender.track.id + ": " + (error.message || error.name));
         });
+        promises.push(promise);
     });
+    return Promise.all(promises);
 }
 /**
  * Remove maxBitrate from the RTCRtpSendParameters' encodings.
@@ -13678,7 +14025,7 @@ function setMaxBitrate(params, maxBitrate) {
 }
 module.exports = PeerConnectionV2;
 
-},{"../../data/receiver":5,"../../media/track/receiver":28,"../../statemachine":84,"../../util":126,"../../util/constants":120,"../../util/log":130,"../../util/sdp":134,"../../util/sdp/issue8329":135,"../../util/sdp/trackmatcher/identity":137,"../../util/sdp/trackmatcher/mid":138,"../../util/sdp/trackmatcher/ordered":139,"../../util/timeout":142,"../../util/twilio-video-errors":143,"./icebox":66,"./iceconnectionmonitor.js":67,"@twilio/webrtc":152,"@twilio/webrtc/lib/util":165,"@twilio/webrtc/lib/util/sdp":167,"backoff":170}],75:[function(require,module,exports){
+},{"../../data/receiver":5,"../../media/track/receiver":28,"../../statemachine":85,"../../util":127,"../../util/constants":121,"../../util/log":131,"../../util/sdp":135,"../../util/sdp/issue8329":136,"../../util/sdp/trackmatcher/identity":138,"../../util/sdp/trackmatcher/mid":139,"../../util/sdp/trackmatcher/ordered":140,"../../util/timeout":143,"../../util/twilio-video-errors":144,"./icebox":66,"./iceconnectionmonitor.js":67,"@twilio/webrtc":153,"@twilio/webrtc/lib/util":166,"@twilio/webrtc/lib/util/sdp":168,"backoff":171}],75:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -13822,6 +14169,14 @@ var PeerConnectionManager = /** @class */ (function (_super) {
         });
         return _this;
     }
+    PeerConnectionManager.prototype.setEffectiveAdaptiveSimulcast = function (effectiveAdaptiveSimulcast) {
+        this._peerConnections.forEach(function (pc) { return pc.setEffectiveAdaptiveSimulcast(effectiveAdaptiveSimulcast); });
+        this._preferredCodecs.video.forEach(function (cs) {
+            if ('adaptiveSimulcast' in cs) {
+                cs.adaptiveSimulcast = effectiveAdaptiveSimulcast;
+            }
+        });
+    };
     Object.defineProperty(PeerConnectionManager.prototype, "connectionState", {
         /**
          * A summarized RTCPeerConnectionState across all the
@@ -14238,7 +14593,93 @@ function updateConnectionState(pcm) {
 }
 module.exports = PeerConnectionManager;
 
-},{"../../media/track/sender":37,"../../queueingeventemitter":52,"../../util":126,"../../util/twilio-video-errors":143,"../../webaudio/audiocontext":147,"./peerconnection":74,"@twilio/webrtc/lib/util":165}],76:[function(require,module,exports){
+},{"../../media/track/sender":37,"../../queueingeventemitter":52,"../../util":127,"../../util/twilio-video-errors":144,"../../webaudio/audiocontext":148,"./peerconnection":74,"@twilio/webrtc/lib/util":166}],76:[function(require,module,exports){
+/* eslint callback-return:0 */
+'use strict';
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+var MediaSignaling = require('./mediasignaling');
+var messageId = 1;
+var PublisherHintsSignaling = /** @class */ (function (_super) {
+    __extends(PublisherHintsSignaling, _super);
+    /**
+     * Construct a {@link RenderHintsSignaling}.
+     */
+    function PublisherHintsSignaling(getReceiver, options) {
+        var _this = _super.call(this, getReceiver, 'publisher_hints', options) || this;
+        _this.on('ready', function (transport) {
+            _this._log.debug('publisher_hints transport ready:', transport);
+            transport.on('message', function (message) {
+                _this._log.debug('Incoming: ', message);
+                switch (message.type) {
+                    case 'publisher_hints':
+                        if (message.publisher && message.publisher.hints && message.publisher.id) {
+                            _this._processPublisherHints(message.publisher.hints, message.publisher.id);
+                        }
+                        break;
+                    default:
+                        _this._log.warn('Unknown message type: ', message.type);
+                        break;
+                }
+            });
+        });
+        return _this;
+    }
+    PublisherHintsSignaling.prototype.sendTrackReplaced = function (_a) {
+        var trackSid = _a.trackSid;
+        if (!this._transport) {
+            return;
+        }
+        var payLoad = {
+            type: 'client_reset',
+            track: trackSid,
+            id: messageId++
+        };
+        this._log.debug('Outgoing: ', payLoad);
+        this._transport.publish(payLoad);
+    };
+    PublisherHintsSignaling.prototype.sendHintResponse = function (_a) {
+        var id = _a.id, hints = _a.hints;
+        if (!this._transport) {
+            return;
+        }
+        var payLoad = {
+            type: 'publisher_hints',
+            id: id,
+            hints: hints
+        };
+        this._log.debug('Outgoing: ', payLoad);
+        this._transport.publish(payLoad);
+    };
+    /**
+     * @private
+     */
+    PublisherHintsSignaling.prototype._processPublisherHints = function (hints, id) {
+        try {
+            this.emit('updated', hints, id);
+        }
+        catch (ex) {
+            this._log.error('error processing hints:', ex);
+        }
+    };
+    return PublisherHintsSignaling;
+}(MediaSignaling));
+module.exports = PublisherHintsSignaling;
+
+},{"./mediasignaling":71}],77:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -14298,7 +14739,7 @@ var RecordingV2 = /** @class */ (function (_super) {
  */
 module.exports = RecordingV2;
 
-},{"../recording":59}],77:[function(require,module,exports){
+},{"../recording":59}],78:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -14418,7 +14859,7 @@ var RemoteParticipantV2 = /** @class */ (function (_super) {
 }(RemoteParticipantSignaling));
 module.exports = RemoteParticipantV2;
 
-},{"../remoteparticipant":60,"./remotetrackpublication":78}],78:[function(require,module,exports){
+},{"../remoteparticipant":60,"./remotetrackpublication":79}],79:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -14472,7 +14913,7 @@ var RemoteTrackPublicationV2 = /** @class */ (function (_super) {
  */
 module.exports = RemoteTrackPublicationV2;
 
-},{"../remotetrackpublication":61}],79:[function(require,module,exports){
+},{"../remotetrackpublication":61}],80:[function(require,module,exports){
 /* eslint callback-return:0 */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -14491,7 +14932,9 @@ var __extends = (this && this.__extends) || (function () {
     };
 })();
 var MediaSignaling = require('./mediasignaling');
+var Timeout = require('../../util/timeout');
 var isDeepEqual = require('../../util').isDeepEqual;
+var RENDER_HINT_RESPONSE_TIME_MS = 2000; // time to wait for server response (before resending all hints.)
 var messageId = 1;
 var RenderHintsSignaling = /** @class */ (function (_super) {
     __extends(RenderHintsSignaling, _super);
@@ -14504,9 +14947,12 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
             _trackSidsToRenderHints: {
                 value: new Map()
             },
-            _isResponsePending: {
-                value: false,
-                writable: true,
+            _responseTimer: {
+                value: new Timeout(function () {
+                    _this._sendAllHints();
+                    // once timer fires, for next round double the delay.
+                    _this._responseTimer.setDelay(_this._responseTimer.delay * 2);
+                }, RENDER_HINT_RESPONSE_TIME_MS, false),
             }
         });
         _this.on('ready', function (transport) {
@@ -14522,23 +14968,29 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
                 }
             });
             // NOTE(mpatwardhan): When transport is set (either 1st time of after vms failover)
-            // resend all track states. For this simply mark all tracks as dirty.
-            Array.from(_this._trackSidsToRenderHints.keys()).forEach(function (trackSid) {
-                var trackState = _this._trackSidsToRenderHints.get(trackSid);
-                if (trackState.renderDimensions) {
-                    trackState.isDimensionDirty = true;
-                }
-                if ('enabled' in trackState) {
-                    trackState.isEnabledDirty = true;
-                }
-            });
-            _this._sendHints();
+            // resend all track states.
+            _this._sendAllHints();
         });
         return _this;
     }
+    RenderHintsSignaling.prototype._sendAllHints = function () {
+        var _this = this;
+        // to force sending all hints simply mark all tracks as dirty.
+        Array.from(this._trackSidsToRenderHints.keys()).forEach(function (trackSid) {
+            var trackState = _this._trackSidsToRenderHints.get(trackSid);
+            if (trackState.renderDimensions) {
+                trackState.isDimensionDirty = true;
+            }
+            if ('enabled' in trackState) {
+                trackState.isEnabledDirty = true;
+            }
+        });
+        this._sendHints();
+    };
     RenderHintsSignaling.prototype._processHintResults = function (hintResults) {
         var _this = this;
-        this._isResponsePending = false;
+        this._responseTimer.clear();
+        this._responseTimer.setDelay(RENDER_HINT_RESPONSE_TIME_MS);
         hintResults.forEach(function (hintResult) {
             if (hintResult.result !== 'OK') {
                 _this._log.debug('Server error processing hint:', hintResult);
@@ -14548,7 +15000,7 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
     };
     RenderHintsSignaling.prototype._sendHints = function () {
         var _this = this;
-        if (!this._transport || this._isResponsePending) {
+        if (!this._transport || this._responseTimer.isSet) {
             return;
         }
         var hints = [];
@@ -14580,7 +15032,7 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
             };
             this._log.debug('Outgoing: ', payLoad);
             this._transport.publish(payLoad);
-            this._isResponsePending = true;
+            this._responseTimer.start();
         }
     };
     /**
@@ -14612,7 +15064,8 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
 }(MediaSignaling));
 module.exports = RenderHintsSignaling;
 
-},{"../../util":126,"./mediasignaling":71}],80:[function(require,module,exports){
+},{"../../util":127,"../../util/timeout":143,"./mediasignaling":71}],81:[function(require,module,exports){
+/* eslint-disable no-console */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -14655,6 +15108,7 @@ var StatsReport = require('../../stats/statsreport');
 var TrackPrioritySignaling = require('./trackprioritysignaling');
 var TrackSwitchOffSignaling = require('./trackswitchoffsignaling');
 var RenderHintsSignaling = require('./renderhintssignaling');
+var PublisherHintsSignaling = require('./publisherhintsignaling.js');
 var _a = require('../../util'), DEFAULT_SESSION_TIMEOUT_SEC = _a.constants.DEFAULT_SESSION_TIMEOUT_SEC, createBandwidthProfilePayload = _a.createBandwidthProfilePayload, defer = _a.defer, difference = _a.difference, filterObject = _a.filterObject, flatMap = _a.flatMap, oncePerTick = _a.oncePerTick;
 var MovingAverageDelta = require('../../util/movingaveragedelta');
 var createTwilioError = require('../../util/twilio-video-errors').createTwilioError;
@@ -14736,6 +15190,9 @@ var RoomV2 = /** @class */ (function (_super) {
             _renderHintsSignaling: {
                 value: new RenderHintsSignaling(getTrackReceiver, { log: log }),
             },
+            _publisherHintsSignaling: {
+                value: new PublisherHintsSignaling(getTrackReceiver, { log: log }),
+            },
             _trackPrioritySignaling: {
                 value: new options.TrackPrioritySignaling(getTrackReceiver, { log: log }),
             },
@@ -14759,11 +15216,15 @@ var RoomV2 = /** @class */ (function (_super) {
         _this._initTrackSwitchOffSignaling();
         _this._initDominantSpeakerSignaling();
         _this._initNetworkQualityMonitorSignaling();
+        _this._initPublisherHintSignaling();
         handleLocalParticipantEvents(_this, localParticipant);
         handlePeerConnectionEvents(_this, peerConnectionManager);
         handleTransportEvents(_this, transport);
         periodicallyPublishStats(_this, transport, options.statsPublishIntervalMs);
         _this._update(initialState);
+        // NOTE(mpatwardhan) after initial state we know if publisher_hints are enabled or not
+        // if they are not enabled. we need to undo simulcast that if it was enabled with initial offer.
+        _this._peerConnectionManager.setEffectiveAdaptiveSimulcast(_this._publisherHintsSignaling.isSetup);
         return _this;
     }
     Object.defineProperty(RoomV2.prototype, "connectionState", {
@@ -15017,7 +15478,8 @@ var RoomV2 = /** @class */ (function (_super) {
             this._networkQualitySignaling,
             this._trackPrioritySignaling,
             this._trackSwitchOffSignaling,
-            this._renderHintsSignaling
+            this._renderHintsSignaling,
+            this._publisherHintsSignaling
         ].forEach(function (mediaSignaling) {
             var channel = mediaSignaling.channel;
             if (!mediaSignaling.isSetup
@@ -15029,6 +15491,28 @@ var RoomV2 = /** @class */ (function (_super) {
             }
         });
         return this;
+    };
+    RoomV2.prototype._initPublisherHintSignaling = function () {
+        var _this = this;
+        this._publisherHintsSignaling.on('updated', function (hints, id) {
+            Promise.all(hints.map(function (hint) {
+                return _this.localParticipant.setPublisherHint(hint.track, hint.encodings).then(function (result) {
+                    return { track: hint.track, result: result };
+                });
+            })).then(function (hintResponses) {
+                _this._publisherHintsSignaling.sendHintResponse({ id: id, hints: hintResponses });
+            });
+        });
+        var handleReplaced = function (track) {
+            if (track.kind === 'video') {
+                track.trackTransceiver.on('replaced', function () {
+                    _this._publisherHintsSignaling.sendTrackReplaced({ trackSid: track.sid });
+                });
+            }
+        };
+        // hook up for any existing and new tracks getting replaced.
+        Array.from(this.localParticipant.tracks.values()).forEach(function (track) { return handleReplaced(track); });
+        this.localParticipant.on('trackAdded', function (track) { return handleReplaced(track); });
     };
     RoomV2.prototype._initTrackSwitchOffSignaling = function () {
         var _this = this;
@@ -15422,7 +15906,7 @@ function replaceNullsWithDefaults(activeIceCandidatePair, peerConnectionId) {
 }
 module.exports = RoomV2;
 
-},{"../../stats/statsreport":112,"../../util":126,"../../util/movingaveragedelta":131,"../../util/twilio-video-errors":143,"../room":62,"./dominantspeakersignaling":65,"./networkqualitymonitor":72,"./networkqualitysignaling":73,"./recording":76,"./remoteparticipant":77,"./renderhintssignaling":79,"./trackprioritysignaling":81,"./trackswitchoffsignaling":82}],81:[function(require,module,exports){
+},{"../../stats/statsreport":113,"../../util":127,"../../util/movingaveragedelta":132,"../../util/twilio-video-errors":144,"../room":62,"./dominantspeakersignaling":65,"./networkqualitymonitor":72,"./networkqualitysignaling":73,"./publisherhintsignaling.js":76,"./recording":77,"./remoteparticipant":78,"./renderhintssignaling":80,"./trackprioritysignaling":82,"./trackswitchoffsignaling":83}],82:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -15488,7 +15972,7 @@ var TrackPrioritySignaling = /** @class */ (function (_super) {
 }(MediaSignaling));
 module.exports = TrackPrioritySignaling;
 
-},{"./mediasignaling":71}],82:[function(require,module,exports){
+},{"./mediasignaling":71}],83:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -15546,7 +16030,7 @@ var TrackSwitchOffSignaling = /** @class */ (function (_super) {
  */
 module.exports = TrackSwitchOffSignaling;
 
-},{"./mediasignaling":71}],83:[function(require,module,exports){
+},{"./mediasignaling":71}],84:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -15656,6 +16140,9 @@ var TwilioConnectionTransport = /** @class */ (function (_super) {
             _dominantSpeaker: {
                 value: options.dominantSpeaker
             },
+            _adaptiveSimulcast: {
+                value: options.adaptiveSimulcast
+            },
             _eventObserver: {
                 value: options.eventObserver,
                 writable: false
@@ -15761,7 +16248,7 @@ var TwilioConnectionTransport = /** @class */ (function (_super) {
             if (this._bandwidthProfile) {
                 message.bandwidth_profile = createBandwidthProfilePayload(this._bandwidthProfile);
             }
-            message.media_signaling = createMediaSignalingPayload(this._dominantSpeaker, this._networkQuality, this._trackPriority, this._trackSwitchOff, this._renderHints);
+            message.media_signaling = createMediaSignalingPayload(this._dominantSpeaker, this._networkQuality, this._trackPriority, this._trackSwitchOff, this._adaptiveSimulcast, this._renderHints);
             message.subscribe = createSubscribePayload(this._automaticSubscription);
             var sdpFormat = this._options.sdpFormat;
             if (sdpFormat) {
@@ -16129,7 +16616,7 @@ function setupTransport(transport) {
 }
 module.exports = TwilioConnectionTransport;
 
-},{"../../statemachine":84,"../../twilioconnection":116,"../../util":126,"../../util/constants":120,"../../util/timeout":142,"../../util/twilio-video-errors":143,"@twilio/webrtc/lib/util/sdp":167,"backoff":170}],84:[function(require,module,exports){
+},{"../../statemachine":85,"../../twilioconnection":117,"../../util":127,"../../util/constants":121,"../../util/timeout":143,"../../util/twilio-video-errors":144,"@twilio/webrtc/lib/util/sdp":168,"backoff":171}],85:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -16575,7 +17062,7 @@ function createUnreachableError(here, there) {
 }
 module.exports = StateMachine;
 
-},{"./util":126,"events":179}],85:[function(require,module,exports){
+},{"./util":127,"events":180}],86:[function(require,module,exports){
 /* eslint no-undefined:0 */
 'use strict';
 /**
@@ -16588,7 +17075,7 @@ function average(xs) {
 }
 module.exports = average;
 
-},{}],86:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 'use strict';
 /**
  * @property {number} [availableSend] - bps (undefined in Firefox)
@@ -16646,7 +17133,7 @@ var IceReport = /** @class */ (function () {
 }());
 module.exports = IceReport;
 
-},{}],87:[function(require,module,exports){
+},{}],88:[function(require,module,exports){
 'use strict';
 var IceReport = require('./icereport');
 /**
@@ -16691,7 +17178,7 @@ var IceReportFactory = /** @class */ (function () {
 }());
 module.exports = IceReportFactory;
 
-},{"./icereport":86}],88:[function(require,module,exports){
+},{"./icereport":87}],89:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -16749,7 +17236,7 @@ var LocalAudioTrackStats = /** @class */ (function (_super) {
  */
 module.exports = LocalAudioTrackStats;
 
-},{"./localtrackstats":89}],89:[function(require,module,exports){
+},{"./localtrackstats":90}],90:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -16809,7 +17296,7 @@ var LocalTrackStats = /** @class */ (function (_super) {
 }(TrackStats));
 module.exports = LocalTrackStats;
 
-},{"./trackstats":114}],90:[function(require,module,exports){
+},{"./trackstats":115}],91:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -16902,7 +17389,7 @@ var LocalVideoTrackStats = /** @class */ (function (_super) {
 }(LocalTrackStats));
 module.exports = LocalVideoTrackStats;
 
-},{"./localtrackstats":89}],91:[function(require,module,exports){
+},{"./localtrackstats":90}],92:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -16936,7 +17423,7 @@ var NetworkQualityAudioStats = /** @class */ (function (_super) {
 }(NetworkQualityMediaStats));
 module.exports = NetworkQualityAudioStats;
 
-},{"./networkqualitymediastats":95}],92:[function(require,module,exports){
+},{"./networkqualitymediastats":96}],93:[function(require,module,exports){
 'use strict';
 /**
  * Bandwidth network quality statistics.
@@ -16970,7 +17457,7 @@ var NetworkQualityBandwidthStats = /** @class */ (function () {
 }());
 module.exports = NetworkQualityBandwidthStats;
 
-},{}],93:[function(require,module,exports){
+},{}],94:[function(require,module,exports){
 'use strict';
 /**
  * Fraction lost network quality statistics.
@@ -16999,7 +17486,7 @@ var NetworkQualityFractionLostStats = /** @class */ (function () {
 }());
 module.exports = NetworkQualityFractionLostStats;
 
-},{}],94:[function(require,module,exports){
+},{}],95:[function(require,module,exports){
 'use strict';
 /**
  * Latency network quality statistics.
@@ -17033,7 +17520,7 @@ var NetworkQualityLatencyStats = /** @class */ (function () {
 }());
 module.exports = NetworkQualityLatencyStats;
 
-},{}],95:[function(require,module,exports){
+},{}],96:[function(require,module,exports){
 'use strict';
 var NetworkQualitySendStats = require('./networkqualitysendstats');
 var NetworkQualityRecvStats = require('./networkqualityrecvstats');
@@ -17080,7 +17567,7 @@ var NetworkQualityMediaStats = /** @class */ (function () {
 }());
 module.exports = NetworkQualityMediaStats;
 
-},{"./networkqualityrecvstats":96,"./networkqualitysendstats":98}],96:[function(require,module,exports){
+},{"./networkqualityrecvstats":97,"./networkqualitysendstats":99}],97:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -17115,7 +17602,7 @@ var NetworkQualityRecvStats = /** @class */ (function (_super) {
 }(NetworkQualitySendOrRecvStats));
 module.exports = NetworkQualityRecvStats;
 
-},{"./networkqualitysendorrecvstats":97}],97:[function(require,module,exports){
+},{"./networkqualitysendorrecvstats":98}],98:[function(require,module,exports){
 'use strict';
 var NetworkQualityBandwidthStats = require('./networkqualitybandwidthstats');
 var NetworkQualityFractionLostStats = require('./networkqualityfractionloststats');
@@ -17155,7 +17642,7 @@ var NetworkQualitySendOrRecvStats = /** @class */ (function () {
 }());
 module.exports = NetworkQualitySendOrRecvStats;
 
-},{"./networkqualitybandwidthstats":92,"./networkqualityfractionloststats":93,"./networkqualitylatencystats":94}],98:[function(require,module,exports){
+},{"./networkqualitybandwidthstats":93,"./networkqualityfractionloststats":94,"./networkqualitylatencystats":95}],99:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -17190,7 +17677,7 @@ var NetworkQualitySendStats = /** @class */ (function (_super) {
 }(NetworkQualitySendOrRecvStats));
 module.exports = NetworkQualitySendStats;
 
-},{"./networkqualitysendorrecvstats":97}],99:[function(require,module,exports){
+},{"./networkqualitysendorrecvstats":98}],100:[function(require,module,exports){
 'use strict';
 var NetworkQualityAudioStats = require('./networkqualityaudiostats');
 var NetworkQualityVideoStats = require('./networkqualityvideostats');
@@ -17230,7 +17717,7 @@ var NetworkQualityStats = /** @class */ (function () {
 }());
 module.exports = NetworkQualityStats;
 
-},{"./networkqualityaudiostats":91,"./networkqualityvideostats":100}],100:[function(require,module,exports){
+},{"./networkqualityaudiostats":92,"./networkqualityvideostats":101}],101:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -17264,7 +17751,7 @@ var NetworkQualityVideoStats = /** @class */ (function (_super) {
 }(NetworkQualityMediaStats));
 module.exports = NetworkQualityVideoStats;
 
-},{"./networkqualitymediastats":95}],101:[function(require,module,exports){
+},{"./networkqualitymediastats":96}],102:[function(require,module,exports){
 'use strict';
 var ReceiverReport = require('./receiverreport');
 var SenderReport = require('./senderreport');
@@ -17342,7 +17829,7 @@ var PeerConnectionReport = /** @class */ (function () {
 }());
 module.exports = PeerConnectionReport;
 
-},{"./receiverreport":103,"./senderreport":110}],102:[function(require,module,exports){
+},{"./receiverreport":104,"./senderreport":111}],103:[function(require,module,exports){
 'use strict';
 var __read = (this && this.__read) || function (o, n) {
     var m = typeof Symbol === "function" && o[Symbol.iterator];
@@ -17772,7 +18259,7 @@ function updateChrome(factory) {
 }
 module.exports = PeerConnectionReportFactory;
 
-},{"./icereportfactory":87,"./peerconnectionreport":101,"./receiverreportfactory":104,"./senderreportfactory":111,"@twilio/webrtc/lib/util":165}],103:[function(require,module,exports){
+},{"./icereportfactory":88,"./peerconnectionreport":102,"./receiverreportfactory":105,"./senderreportfactory":112,"@twilio/webrtc/lib/util":166}],104:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -17898,7 +18385,7 @@ var ReceiverReport = /** @class */ (function (_super) {
 }(SenderOrReceiverReport));
 module.exports = ReceiverReport;
 
-},{"./average":85,"./senderorreceiverreport":108,"./sum":113}],104:[function(require,module,exports){
+},{"./average":86,"./senderorreceiverreport":109,"./sum":114}],105:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -17957,7 +18444,7 @@ var ReceiverReportFactory = /** @class */ (function (_super) {
 }(SenderOrReceiverReportFactory));
 module.exports = ReceiverReportFactory;
 
-},{"./receiverreport":103,"./senderorreceiverreportfactory":109}],105:[function(require,module,exports){
+},{"./receiverreport":104,"./senderorreceiverreportfactory":110}],106:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -18009,7 +18496,7 @@ var RemoteAudioTrackStats = /** @class */ (function (_super) {
 }(RemoteTrackStats));
 module.exports = RemoteAudioTrackStats;
 
-},{"./remotetrackstats":106}],106:[function(require,module,exports){
+},{"./remotetrackstats":107}],107:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -18061,7 +18548,7 @@ var RemoteTrackStats = /** @class */ (function (_super) {
 }(TrackStats));
 module.exports = RemoteTrackStats;
 
-},{"./trackstats":114}],107:[function(require,module,exports){
+},{"./trackstats":115}],108:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -18126,7 +18613,7 @@ var RemoteVideoTrackStats = /** @class */ (function (_super) {
 }(RemoteTrackStats));
 module.exports = RemoteVideoTrackStats;
 
-},{"./remotetrackstats":106}],108:[function(require,module,exports){
+},{"./remotetrackstats":107}],109:[function(require,module,exports){
 'use strict';
 /**
  * @property {StatsId} id
@@ -18160,7 +18647,7 @@ var SenderOrReceiverReport = /** @class */ (function () {
 }());
 module.exports = SenderOrReceiverReport;
 
-},{}],109:[function(require,module,exports){
+},{}],110:[function(require,module,exports){
 'use strict';
 /**
  * @property {StatsId} id
@@ -18196,7 +18683,7 @@ var SenderOrReceiverReportFactory = /** @class */ (function () {
 }());
 module.exports = SenderOrReceiverReportFactory;
 
-},{}],110:[function(require,module,exports){
+},{}],111:[function(require,module,exports){
 /* eslint no-undefined:0 */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -18284,7 +18771,7 @@ var SenderReport = /** @class */ (function (_super) {
 }(SenderOrReceiverReport));
 module.exports = SenderReport;
 
-},{"./average":85,"./senderorreceiverreport":108,"./sum":113}],111:[function(require,module,exports){
+},{"./average":86,"./senderorreceiverreport":109,"./sum":114}],112:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -18343,7 +18830,7 @@ var SenderReportFactory = /** @class */ (function (_super) {
 }(SenderOrReceiverReportFactory));
 module.exports = SenderReportFactory;
 
-},{"./senderorreceiverreportfactory":109,"./senderreport":110}],112:[function(require,module,exports){
+},{"./senderorreceiverreportfactory":110,"./senderreport":111}],113:[function(require,module,exports){
 'use strict';
 var LocalAudioTrackStats = require('./localaudiotrackstats');
 var LocalVideoTrackStats = require('./localvideotrackstats');
@@ -18394,7 +18881,7 @@ var StatsReport = /** @class */ (function () {
 }());
 module.exports = StatsReport;
 
-},{"./localaudiotrackstats":88,"./localvideotrackstats":90,"./remoteaudiotrackstats":105,"./remotevideotrackstats":107}],113:[function(require,module,exports){
+},{"./localaudiotrackstats":89,"./localvideotrackstats":91,"./remoteaudiotrackstats":106,"./remotevideotrackstats":108}],114:[function(require,module,exports){
 'use strict';
 /**
  * @param {Array<number|undefined>} xs
@@ -18405,7 +18892,7 @@ function sum(xs) {
 }
 module.exports = sum;
 
-},{}],114:[function(require,module,exports){
+},{}],115:[function(require,module,exports){
 'use strict';
 /**
  * Statistics for a {@link Track}.
@@ -18464,7 +18951,7 @@ var TrackStats = /** @class */ (function () {
 }());
 module.exports = TrackStats;
 
-},{}],115:[function(require,module,exports){
+},{}],116:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -18526,7 +19013,7 @@ var TrackTransceiver = /** @class */ (function (_super) {
  */
 module.exports = TrackTransceiver;
 
-},{"events":179}],116:[function(require,module,exports){
+},{"events":180}],117:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -19181,7 +19668,7 @@ TwilioConnection.CloseReason = CloseReason;
 module.exports = TwilioConnection;
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./statemachine":84,"./util":126,"./util/log":130,"./util/networkmonitor":132,"./util/timeout":142,"ws":201}],117:[function(require,module,exports){
+},{"./statemachine":85,"./util":127,"./util/log":131,"./util/networkmonitor":133,"./util/timeout":143,"ws":202}],118:[function(require,module,exports){
 'use strict';
 var defer = require('./').defer;
 /**
@@ -19246,7 +19733,7 @@ var AsyncVar = /** @class */ (function () {
 }());
 module.exports = AsyncVar;
 
-},{"./":126}],118:[function(require,module,exports){
+},{"./":127}],119:[function(require,module,exports){
 /* globals chrome, navigator */
 'use strict';
 var __read = (this && this.__read) || function (o, n) {
@@ -19377,7 +19864,7 @@ module.exports = {
     rebrandedChromeBrowser: rebrandedChromeBrowser
 };
 
-},{}],119:[function(require,module,exports){
+},{}],120:[function(require,module,exports){
 'use strict';
 var __read = (this && this.__read) || function (o, n) {
     var m = typeof Symbol === "function" && o[Symbol.iterator];
@@ -19505,11 +19992,22 @@ var CancelablePromise = /** @class */ (function () {
             promise.then.apply(promise, __spreadArray([], __read(args))).then(resolve, reject);
         }, this._onCancel);
     };
+    /**
+   * @param {?function} onFinally
+   * @returns {CancelablePromise}
+   */
+    CancelablePromise.prototype.finally = function () {
+        var args = [].slice.call(arguments);
+        var promise = this._promise;
+        return new CancelablePromise(function onCreate(resolve, reject) {
+            promise.finally.apply(promise, __spreadArray([], __read(args))).then(resolve, reject);
+        }, this._onCancel);
+    };
     return CancelablePromise;
 }());
 module.exports = CancelablePromise;
 
-},{}],120:[function(require,module,exports){
+},{}],121:[function(require,module,exports){
 'use strict';
 var packageInfo = require('../../package.json');
 module.exports.SDK_NAME = packageInfo.name + ".js";
@@ -19597,7 +20095,7 @@ module.exports.videoContentPreferencesMode = {
     MODE_MANUAL: 'manual'
 };
 
-},{"../../package.json":200}],121:[function(require,module,exports){
+},{"../../package.json":201}],122:[function(require,module,exports){
 'use strict';
 var detectSilence = require('../webaudio/detectsilence');
 var N_ATTEMPTS = 3;
@@ -19638,7 +20136,7 @@ function detectSilentAudio(el) {
 }
 module.exports = detectSilentAudio;
 
-},{"../webaudio/audiocontext":147,"../webaudio/detectsilence":148}],122:[function(require,module,exports){
+},{"../webaudio/audiocontext":148,"../webaudio/detectsilence":149}],123:[function(require,module,exports){
 'use strict';
 // Cached copy of the <canvas> used to check silent video frames.
 var canvas = null;
@@ -19697,7 +20195,7 @@ function detectSilentVideo(el) {
 }
 module.exports = detectSilentVideo;
 
-},{}],123:[function(require,module,exports){
+},{}],124:[function(require,module,exports){
 'use strict';
 /**
  * The {@link DocumentVisibilityMonitor} monitors the visibility state of the DOM
@@ -19819,7 +20317,7 @@ var DocumentVisibilityMonitor = /** @class */ (function () {
 }());
 module.exports = new DocumentVisibilityMonitor(2);
 
-},{}],124:[function(require,module,exports){
+},{}],125:[function(require,module,exports){
 /* eslint-disable no-console */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -19917,7 +20415,7 @@ var EventObserver = /** @class */ (function (_super) {
  */
 module.exports = EventObserver;
 
-},{"events":179}],125:[function(require,module,exports){
+},{"events":180}],126:[function(require,module,exports){
 'use strict';
 var Filter = /** @class */ (function () {
     function Filter(options) {
@@ -19961,7 +20459,7 @@ var Filter = /** @class */ (function () {
 }());
 module.exports = Filter;
 
-},{}],126:[function(require,module,exports){
+},{}],127:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -20566,12 +21064,26 @@ function createRoomConnectEventPayload(connectOptions) {
         eventProp = eventProp || prop;
         payload[eventProp] = boolToString(!!connectOptions[prop]);
     });
-    // numbers and string properties.
-    [['maxVideoBitrate'], ['maxAudioBitrate'], ['iceTransportPolicy'], ['region'], ['name', 'roomName']].forEach(function (_a) {
+    // numbers properties.
+    [['maxVideoBitrate'], ['maxAudioBitrate']].forEach(function (_a) {
         var _b = __read(_a, 2), prop = _b[0], eventProp = _b[1];
         eventProp = eventProp || prop;
-        if (typeof connectOptions[prop] === 'number' || typeof connectOptions[prop] === 'string') {
+        if (typeof connectOptions[prop] === 'number') {
             payload[eventProp] = connectOptions[prop];
+        }
+        else if (!isNaN(Number(connectOptions[prop]))) {
+            payload[eventProp] = Number(connectOptions[prop]);
+        }
+    });
+    // string properties.
+    [['iceTransportPolicy'], ['region'], ['name', 'roomName']].forEach(function (_a) {
+        var _b = __read(_a, 2), prop = _b[0], eventProp = _b[1];
+        eventProp = eventProp || prop;
+        if (typeof connectOptions[prop] === 'string') {
+            payload[eventProp] = connectOptions[prop];
+        }
+        else if (typeof connectOptions[prop] === 'number' && prop === 'name') {
+            payload[eventProp] = connectOptions[prop].toString();
         }
     });
     // array props stringified.
@@ -20655,7 +21167,7 @@ function createBandwidthProfileVideoPayload(bandwidthProfileVideo) {
  *   protocol or not.
  * @returns {object}
  */
-function createMediaSignalingPayload(dominantSpeaker, networkQuality, trackPriority, trackSwitchOff, renderHints) {
+function createMediaSignalingPayload(dominantSpeaker, networkQuality, trackPriority, trackSwitchOff, adaptiveSimulcast, renderHints) {
     var transports = { transports: [{ type: 'data-channel' }] };
     return Object.assign(dominantSpeaker
         // eslint-disable-next-line
@@ -20666,6 +21178,9 @@ function createMediaSignalingPayload(dominantSpeaker, networkQuality, trackPrior
         : {}, renderHints
         // eslint-disable-next-line
         ? { render_hints: transports }
+        : {}, adaptiveSimulcast
+        // eslint-disable-next-line
+        ? { publisher_hints: transports }
         : {}, trackPriority
         // eslint-disable-next-line
         ? { track_priority: transports }
@@ -20760,8 +21275,7 @@ function inRange(num, min, max) {
 function isChromeScreenShareTrack(track) {
     // NOTE(mpatwardhan): Chrome creates screen share tracks with label like: "screen:69734272*"
     // we will check for label that starts with "screen:D" where D being a digit.
-    var isChrome = util.guessBrowser() === 'chrome';
-    return isChrome && track.kind === 'video' && track.label && (/^screen:[0-9]+/.test(track.label) || /^web-contents-media-stream:[0-9/]+/.test(track.label) || /^window:[0-9]+/.test(track.label));
+    return util.guessBrowser() === 'chrome' && track.kind === 'video' && 'displaySurface' in track.getSettings();
 }
 /**
  * returns true if given MediaStreamTrack is a user media track
@@ -20831,7 +21345,7 @@ exports.isUserMediaTrack = isUserMediaTrack;
 exports.waitForSometime = waitForSometime;
 exports.waitForEvent = waitForEvent;
 
-},{"./constants":120,"./sid":140,"@twilio/webrtc/lib/util":165}],127:[function(require,module,exports){
+},{"./constants":121,"./sid":141,"@twilio/webrtc/lib/util":166}],128:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -21108,7 +21622,7 @@ function reconnect(publisher, token, sdkName, sdkVersion, roomSid, participantSi
 module.exports = InsightsPublisher;
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"..":126,"../../util":126,"events":179,"ws":201}],128:[function(require,module,exports){
+},{"..":127,"../../util":127,"events":180,"ws":202}],129:[function(require,module,exports){
 // eslint-disable-next-line no-warning-comments
 // TODO(mroberts): This should be described as implementing some
 // InsightsPublisher interface.
@@ -21153,7 +21667,7 @@ var InsightsPublisher = /** @class */ (function () {
 }());
 module.exports = InsightsPublisher;
 
-},{}],129:[function(require,module,exports){
+},{}],130:[function(require,module,exports){
 'use strict';
 var defer = require('./').defer;
 /**
@@ -21215,7 +21729,7 @@ var LocalMediaRestartDeferreds = /** @class */ (function () {
 }());
 module.exports = new LocalMediaRestartDeferreds();
 
-},{"./":126}],130:[function(require,module,exports){
+},{"./":127}],131:[function(require,module,exports){
 /* eslint new-cap:0 */
 'use strict';
 var __read = (this && this.__read) || function (o, n) {
@@ -21502,7 +22016,7 @@ function validateLogLevels(levels) {
 }
 module.exports = Log;
 
-},{"../vendor/loglevel":146,"./constants":120}],131:[function(require,module,exports){
+},{"../vendor/loglevel":147,"./constants":121}],132:[function(require,module,exports){
 'use strict';
 /**
  * Calculates the moving average delta for the given pair ofsamples. A sample (S)
@@ -21549,7 +22063,7 @@ var MovingAverageDelta = /** @class */ (function () {
 }());
 module.exports = MovingAverageDelta;
 
-},{}],132:[function(require,module,exports){
+},{}],133:[function(require,module,exports){
 'use strict';
 /**
  * Monitor the network connection status to detect interruptions and handoffs.
@@ -21638,7 +22152,7 @@ var NetworkMonitor = /** @class */ (function () {
 }());
 module.exports = NetworkMonitor;
 
-},{}],133:[function(require,module,exports){
+},{}],134:[function(require,module,exports){
 /* eslint-disable no-console */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
@@ -21701,7 +22215,7 @@ var NullResizeObserver = /** @class */ (function (_super) {
 }(NullObserver));
 module.exports = { NullIntersectionObserver: NullIntersectionObserver, NullResizeObserver: NullResizeObserver, NullObserver: NullObserver };
 
-},{}],134:[function(require,module,exports){
+},{}],135:[function(require,module,exports){
 'use strict';
 var __read = (this && this.__read) || function (o, n) {
     var m = typeof Symbol === "function" && o[Symbol.iterator];
@@ -22089,9 +22603,12 @@ function unifiedPlanFilterLocalCodecs(localSdp, remoteSdp) {
  * @param localSdp - simulcast enabled local sdp
  * @param localSdpWithoutSimulcast - local sdp before simulcast was set
  * @param remoteSdp - remote sdp
+ * @param revertForAll - when true simulcast will be reverted for all codecs. when false it will be reverted
+ *  only for non-vp8 codecs.
  * @return {string} Updated SDP string
  */
-function revertSimulcastForNonVP8MediaSections(localSdp, localSdpWithoutSimulcast, remoteSdp) {
+function revertSimulcast(localSdp, localSdpWithoutSimulcast, remoteSdp, revertForAll) {
+    if (revertForAll === void 0) { revertForAll = false; }
     var remoteMidToMediaSections = createMidToMediaSectionMap(remoteSdp);
     var localMidToMediaSectionsWithoutSimulcast = createMidToMediaSectionMap(localSdpWithoutSimulcast);
     var mediaSections = getMediaSections(localSdp);
@@ -22110,7 +22627,8 @@ function revertSimulcastForNonVP8MediaSections(localSdp, localSdpWithoutSimulcas
         var remotePtToCodecs = createPtToCodecName(remoteSection);
         var remotePayloadTypes = getPayloadTypesInMediaSection(remoteSection);
         var isVP8ThePreferredCodec = remotePayloadTypes.length && remotePtToCodecs.get(remotePayloadTypes[0]) === 'vp8';
-        return isVP8ThePreferredCodec ? section : localMidToMediaSectionsWithoutSimulcast.get(mid).replace(/\r\n$/, '');
+        var shouldRevertSimulcast = revertForAll || !isVP8ThePreferredCodec;
+        return shouldRevertSimulcast ? localMidToMediaSectionsWithoutSimulcast.get(mid).replace(/\r\n$/, '') : section;
     })).concat('').join('\r\n');
 }
 /**
@@ -22295,7 +22813,7 @@ exports.disableRtx = disableRtx;
 exports.enableDtxForOpus = enableDtxForOpus;
 exports.getMediaSections = getMediaSections;
 exports.removeSSRCAttributes = removeSSRCAttributes;
-exports.revertSimulcastForNonVP8MediaSections = revertSimulcastForNonVP8MediaSections;
+exports.revertSimulcast = revertSimulcast;
 exports.setBitrateParameters = setBitrateParameters;
 exports.setCodecPreferences = setCodecPreferences;
 exports.setSimulcast = setSimulcast;
@@ -22303,7 +22821,7 @@ exports.unifiedPlanFilterLocalCodecs = unifiedPlanFilterLocalCodecs;
 exports.unifiedPlanAddOrRewriteNewTrackIds = unifiedPlanAddOrRewriteNewTrackIds;
 exports.unifiedPlanAddOrRewriteTrackIds = unifiedPlanAddOrRewriteTrackIds;
 
-},{"../":126,"./simulcast":136}],135:[function(require,module,exports){
+},{"../":127,"./simulcast":137}],136:[function(require,module,exports){
 'use strict';
 var RTCSessionDescription = require('@twilio/webrtc').RTCSessionDescription;
 var createPtToCodecName = require('./').createPtToCodecName;
@@ -22497,7 +23015,7 @@ function addFmtpAttributeForRtxPt(mediaSection, rtxPt, pt) {
 }
 module.exports = workaround;
 
-},{"./":134,"@twilio/webrtc":152}],136:[function(require,module,exports){
+},{"./":135,"@twilio/webrtc":153}],137:[function(require,module,exports){
 'use strict';
 var __read = (this && this.__read) || function (o, n) {
     var m = typeof Symbol === "function" && o[Symbol.iterator];
@@ -22783,7 +23301,7 @@ function setSimulcastInMediaSection(section, sdpFormat, trackIdsToAttributes) {
  */
 module.exports = setSimulcastInMediaSection;
 
-},{"../":126}],137:[function(require,module,exports){
+},{"../":127}],138:[function(require,module,exports){
 'use strict';
 /**
  * An {@link IdentityTrackMatcher} matches RTCTrackEvents with their respective
@@ -22809,7 +23327,7 @@ var IdentityTrackMatcher = /** @class */ (function () {
 }());
 module.exports = IdentityTrackMatcher;
 
-},{}],138:[function(require,module,exports){
+},{}],139:[function(require,module,exports){
 'use strict';
 var getMediaSections = require('../').getMediaSections;
 /**
@@ -22854,7 +23372,7 @@ var MIDTrackMatcher = /** @class */ (function () {
 }());
 module.exports = MIDTrackMatcher;
 
-},{"../":134}],139:[function(require,module,exports){
+},{"../":135}],140:[function(require,module,exports){
 'use strict';
 var util = require('../../');
 var getMediaSections = require('../').getMediaSections;
@@ -22966,7 +23484,7 @@ var OrderedTrackMatcher = /** @class */ (function () {
 }());
 module.exports = OrderedTrackMatcher;
 
-},{"../":134,"../../":126}],140:[function(require,module,exports){
+},{"../":135,"../../":127}],141:[function(require,module,exports){
 var SID_CHARS = '1234567890abcdef';
 var SID_CHAR_LENGTH = 32;
 // copied from: https://code.hq.twilio.com/flex/monkey/blob/0fdce2b6c52d6be0b17a5cdb92f0c54f119b8ea8/src/client/lib/sid.ts#L39
@@ -22985,7 +23503,7 @@ function createSID(prefix) {
 exports.sessionSID = createSID('SS');
 exports.createSID = createSID;
 
-},{}],141:[function(require,module,exports){
+},{}],142:[function(require,module,exports){
 'use strict';
 var _a = require('@twilio/webrtc/lib/util'), guessBrowser = _a.guessBrowser, isWebRTCSupported = _a.support;
 var _b = require('./browserdetection'), isAndroid = _b.isAndroid, isMobile = _b.isMobile, isNonChromiumEdge = _b.isNonChromiumEdge, rebrandedChromeBrowser = _b.rebrandedChromeBrowser, mobileWebKitBrowser = _b.mobileWebKitBrowser;
@@ -23030,7 +23548,7 @@ function isSupported() {
 }
 module.exports = isSupported;
 
-},{"./browserdetection":118,"@twilio/webrtc/lib/util":165}],142:[function(require,module,exports){
+},{"./browserdetection":119,"@twilio/webrtc/lib/util":166}],143:[function(require,module,exports){
 'use strict';
 /**
  * A {@link Timeout} represents a resettable and clearable timeout.
@@ -23125,7 +23643,7 @@ var Timeout = /** @class */ (function () {
 }());
 module.exports = Timeout;
 
-},{}],143:[function(require,module,exports){
+},{}],144:[function(require,module,exports){
 // NOTE: Do not edit this file. This code is auto-generated. Contact the
 // Twilio SDK Team for more information.
 'use strict';
@@ -24149,7 +24667,7 @@ var ConfigurationAcquireTurnFailedError = /** @class */ (function (_super) {
 exports.ConfigurationAcquireTurnFailedError = ConfigurationAcquireTurnFailedError;
 Object.defineProperty(TwilioErrorByCode, 53501, { value: ConfigurationAcquireTurnFailedError });
 
-},{"./twilioerror":144}],144:[function(require,module,exports){
+},{"./twilioerror":145}],145:[function(require,module,exports){
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -24231,7 +24749,7 @@ var TwilioError = /** @class */ (function (_super) {
 }(Error));
 module.exports = TwilioError;
 
-},{}],145:[function(require,module,exports){
+},{}],146:[function(require,module,exports){
 'use strict';
 var isNonArrayObject = require('./').isNonArrayObject;
 var _a = require('./constants'), E = _a.typeErrors, clientTrackSwitchOffControl = _a.clientTrackSwitchOffControl, videoContentPreferencesMode = _a.videoContentPreferencesMode, subscriptionMode = _a.subscriptionMode, trackPriority = _a.trackPriority, trackSwitchOffMode = _a.trackSwitchOffMode;
@@ -24348,7 +24866,7 @@ exports.validateBandwidthProfile = validateBandwidthProfile;
 exports.validateLocalTrack = validateLocalTrack;
 exports.validateObject = validateObject;
 
-},{"./":126,"./constants":120}],146:[function(require,module,exports){
+},{"./":127,"./constants":121}],147:[function(require,module,exports){
 /**
  * Copyright (c) 2013 Tim Perry
  * Licensed under the MIT license.
@@ -24588,7 +25106,7 @@ defaultLogger.getLoggers = function getLoggers() {
 defaultLogger['default'] = defaultLogger;
 module.exports = defaultLogger;
 
-},{}],147:[function(require,module,exports){
+},{}],148:[function(require,module,exports){
 /* globals webkitAudioContext, AudioContext */
 'use strict';
 var NativeAudioContext = typeof AudioContext !== 'undefined'
@@ -24671,7 +25189,7 @@ var AudioContextFactory = /** @class */ (function () {
 }());
 module.exports = new AudioContextFactory();
 
-},{}],148:[function(require,module,exports){
+},{}],149:[function(require,module,exports){
 'use strict';
 /**
  * Return a Promise that resolves after `timeout` milliseconds.
@@ -24724,7 +25242,7 @@ function detectSilence(audioContext, stream, timeout) {
 }
 module.exports = detectSilence;
 
-},{}],149:[function(require,module,exports){
+},{}],150:[function(require,module,exports){
 'use strict';
 var detectSilence = require('./detectsilence');
 /**
@@ -24794,7 +25312,7 @@ to get a new one, but we\'ve run out of retries; returning it anyway.');
 }
 module.exports = workaround;
 
-},{"./audiocontext":147,"./detectsilence":148}],150:[function(require,module,exports){
+},{"./audiocontext":148,"./detectsilence":149}],151:[function(require,module,exports){
 'use strict';
 
 var flatMap = require('./util').flatMap;
@@ -25255,6 +25773,7 @@ function standardizeChromeOrSafariStats(response) {
   var remoteOutbound = null;
   var track = null;
   var codec = null;
+  var localMedia = null;
 
   response.forEach(function(stat) {
     switch (stat.type) {
@@ -25263,6 +25782,9 @@ function standardizeChromeOrSafariStats(response) {
         break;
       case 'outbound-rtp':
         outbound.push(stat);
+        break;
+      case 'media-source':
+        localMedia = stat;
         break;
       case 'track':
         track = stat;
@@ -25288,6 +25810,7 @@ function standardizeChromeOrSafariStats(response) {
     var standardizedStats = {};
     var statSources = [
       source, // local rtp stats
+      localMedia,
       track,
       codec,
       remoteSource && remoteSource.ssrc === source.ssrc ? remoteSource : null, // remote rtp stats
@@ -25331,6 +25854,7 @@ function standardizeChromeOrSafariStats(response) {
         standardizedStats.frameWidthReceived = frameWidth;
       } else {
         standardizedStats.frameWidthSent = frameWidth;
+        standardizedStats.frameWidthInput = track.frameWidth;
       }
     }
 
@@ -25340,12 +25864,13 @@ function standardizeChromeOrSafariStats(response) {
         standardizedStats.frameHeightReceived = frameHeight;
       } else {
         standardizedStats.frameHeightSent = frameHeight;
+        standardizedStats.frameHeightInput = track.frameHeight;
       }
     }
 
     var framesPerSecond = getStatValue('framesPerSecond');
     if (typeof framesPerSecond === 'number') {
-      standardizedStats.frameRateSent = framesPerSecond;
+      standardizedStats[isRemote ? 'frameRateReceived' : 'frameRateSent'] = framesPerSecond;
     }
 
     var bytesReceived = getStatValue('bytesReceived');
@@ -25680,7 +26205,7 @@ function standardizeFirefoxStats(response, isRemote) {
 
 module.exports = getStats;
 
-},{"./util":165,"./util/sdp":167}],151:[function(require,module,exports){
+},{"./util":166,"./util/sdp":168}],152:[function(require,module,exports){
 /* globals navigator */
 'use strict';
 
@@ -25706,7 +26231,7 @@ function getUserMedia(constraints) {
 
 module.exports = getUserMedia;
 
-},{}],152:[function(require,module,exports){
+},{}],153:[function(require,module,exports){
 'use strict';
 
 var WebRTC = {};
@@ -25748,7 +26273,7 @@ Object.defineProperties(WebRTC, {
 
 module.exports = WebRTC;
 
-},{"../package.json":168,"./getstats":150,"./getusermedia":151,"./mediastream":153,"./mediastreamtrack":154,"./rtcicecandidate":155,"./rtcpeerconnection":158,"./rtcsessiondescription":163}],153:[function(require,module,exports){
+},{"../package.json":169,"./getstats":151,"./getusermedia":152,"./mediastream":154,"./mediastreamtrack":155,"./rtcicecandidate":156,"./rtcpeerconnection":159,"./rtcsessiondescription":164}],154:[function(require,module,exports){
 /* globals MediaStream */
 'use strict';
 
@@ -25760,7 +26285,7 @@ if (typeof MediaStream === 'function') {
   };
 }
 
-},{}],154:[function(require,module,exports){
+},{}],155:[function(require,module,exports){
 /* global MediaStreamTrack */
 'use strict';
 
@@ -25772,7 +26297,7 @@ if (typeof MediaStreamTrack === 'function') {
   };
 }
 
-},{}],155:[function(require,module,exports){
+},{}],156:[function(require,module,exports){
 /* global RTCIceCandidate */
 'use strict';
 
@@ -25784,7 +26309,7 @@ if (typeof RTCIceCandidate === 'function') {
   };
 }
 
-},{}],156:[function(require,module,exports){
+},{}],157:[function(require,module,exports){
 /* globals RTCDataChannel, RTCPeerConnection, RTCSessionDescription */
 'use strict';
 
@@ -26348,7 +26873,7 @@ function updateTrackIdsToSSRCs(sdpFormat, tracksToSSRCs, sdp) {
 
 module.exports = ChromeRTCPeerConnection;
 
-},{"../mediastream":153,"../rtcrtpsender":160,"../rtcsessiondescription/chrome":161,"../util":165,"../util/eventtarget":164,"../util/latch":166,"../util/sdp":167,"util":198}],157:[function(require,module,exports){
+},{"../mediastream":154,"../rtcrtpsender":161,"../rtcsessiondescription/chrome":162,"../util":166,"../util/eventtarget":165,"../util/latch":167,"../util/sdp":168,"util":199}],158:[function(require,module,exports){
 /* globals RTCPeerConnection */
 'use strict';
 
@@ -26681,7 +27206,7 @@ function overwriteWithInitiallyNegotiatedDtlsRole(description, dtlsRole) {
 
 module.exports = FirefoxRTCPeerConnection;
 
-},{"../rtcsessiondescription/firefox":162,"../util":165,"../util/eventtarget":164,"../util/sdp":167,"util":198}],158:[function(require,module,exports){
+},{"../rtcsessiondescription/firefox":163,"../util":166,"../util/eventtarget":165,"../util/sdp":168,"util":199}],159:[function(require,module,exports){
 'use strict';
 
 if (typeof RTCPeerConnection === 'function') {
@@ -26706,7 +27231,7 @@ if (typeof RTCPeerConnection === 'function') {
   };
 }
 
-},{"../util":165,"./chrome":156,"./firefox":157,"./safari":159}],159:[function(require,module,exports){
+},{"../util":166,"./chrome":157,"./firefox":158,"./safari":160}],160:[function(require,module,exports){
 /* globals RTCPeerConnection, RTCSessionDescription */
 'use strict';
 
@@ -27097,7 +27622,7 @@ function shimDataChannel(dataChannel) {
 
 module.exports = SafariRTCPeerConnection;
 
-},{"../util":165,"../util/eventtarget":164,"../util/latch":166,"../util/sdp":167,"util":198}],160:[function(require,module,exports){
+},{"../util":166,"../util/eventtarget":165,"../util/latch":167,"../util/sdp":168,"util":199}],161:[function(require,module,exports){
 'use strict';
 
 /**
@@ -27138,7 +27663,7 @@ function RTCRtpSenderShim(track) {
 
 module.exports = RTCRtpSenderShim;
 
-},{}],161:[function(require,module,exports){
+},{}],162:[function(require,module,exports){
 /* globals RTCSessionDescription */
 'use strict';
 
@@ -27179,13 +27704,13 @@ function ChromeRTCSessionDescription(descriptionInitDict) {
 
 module.exports = ChromeRTCSessionDescription;
 
-},{}],162:[function(require,module,exports){
+},{}],163:[function(require,module,exports){
 /* globals RTCSessionDescription */
 'use strict';
 
 module.exports = RTCSessionDescription;
 
-},{}],163:[function(require,module,exports){
+},{}],164:[function(require,module,exports){
 /* globals RTCSessionDescription */
 'use strict';
 
@@ -27208,7 +27733,7 @@ if (typeof RTCSessionDescription === 'function') {
   };
 }
 
-},{"../util":165,"./chrome":161,"./firefox":162}],164:[function(require,module,exports){
+},{"../util":166,"./chrome":162,"./firefox":163}],165:[function(require,module,exports){
 'use strict';
 
 var EventEmitter = require('events').EventEmitter;
@@ -27249,7 +27774,7 @@ EventTarget.prototype.removeEventListener = function removeEventListener() {
 
 module.exports = EventTarget;
 
-},{"events":179}],165:[function(require,module,exports){
+},{"events":180}],166:[function(require,module,exports){
 'use strict';
 
 /**
@@ -27586,7 +28111,7 @@ exports.makeUUID = makeUUID;
 exports.proxyProperties = proxyProperties;
 exports.support = support;
 
-},{}],166:[function(require,module,exports){
+},{}],167:[function(require,module,exports){
 'use strict';
 
 var defer = require('./').defer;
@@ -27701,7 +28226,7 @@ function createUnreachableStateError(from, to) {
 
 module.exports = Latch;
 
-},{"./":165}],167:[function(require,module,exports){
+},{"./":166}],168:[function(require,module,exports){
 /* globals RTCPeerConnection, RTCRtpTransceiver */
 
 'use strict';
@@ -28011,56 +28536,43 @@ exports.getUnifiedPlanSSRCs = getUnifiedPlanSSRCs;
 exports.updatePlanBTrackIdsToSSRCs = updatePlanBTrackIdsToSSRCs;
 exports.updateUnifiedPlanTrackIdsToSSRCs = updateUnifiedPlanTrackIdsToSSRCs;
 
-},{"./":165}],168:[function(require,module,exports){
+},{"./":166}],169:[function(require,module,exports){
 module.exports={
-  "_from": "@twilio/webrtc@4.5.1",
-  "_id": "@twilio/webrtc@4.5.1",
-  "_inBundle": false,
-  "_integrity": "sha512-0GwnffxJ71jm/7sYD8MYHzZRCR59p7KYqiMO8/Fmny7S4L0s8Ms36ghUUfCE7x/XuWjAC4FU6L/DkFN1Ewuu8Q==",
-  "_location": "/@twilio/webrtc",
-  "_phantomChildren": {},
-  "_requested": {
-    "type": "version",
-    "registry": true,
-    "raw": "@twilio/webrtc@4.5.1",
-    "name": "@twilio/webrtc",
-    "escapedName": "@twilio%2fwebrtc",
-    "scope": "@twilio",
-    "rawSpec": "4.5.1",
-    "saveSpec": null,
-    "fetchSpec": "4.5.1"
+  "name": "@twilio/webrtc",
+  "version": "4.5.2",
+  "description": "WebRTC-related APIs and shims used by twilio-video.js",
+  "scripts": {
+    "build": "npm-run-all clean lint test",
+    "clean": "rimraf coverage",
+    "lint": "eslint ./lib",
+    "test:unit": "istanbul cover node_modules/mocha/bin/_mocha -- ./test/unit/index.js",
+    "test:integration:native": "karma start karma/integration.conf.js",
+    "test:integration:adapter": "karma start karma/integration.adapter.conf.js",
+    "test:integration": "npm-run-all test:integration:*",
+    "test": "npm-run-all test:*"
   },
-  "_requiredBy": [
-    "/"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twilio/twilio-webrtc.js.git"
+  },
+  "keywords": [
+    "shim",
+    "twilio",
+    "video",
+    "webrtc"
   ],
-  "_resolved": "https://registry.npmjs.org/@twilio/webrtc/-/webrtc-4.5.1.tgz",
-  "_shasum": "9a69b8f3709624b215e9481097626b1d3ae879ba",
-  "_spec": "@twilio/webrtc@4.5.1",
-  "_where": "/home/circleci/project",
-  "author": {
-    "name": "Manjesh Malavalli",
-    "email": "mmalavalli@twilio.com"
-  },
+  "author": "Manjesh Malavalli <mmalavalli@twilio.com>",
+  "contributors": [
+    "Mark Roberts <mroberts@twilio.com>",
+    "Ryan Rowland <rrowland@twilio.com>",
+    "Makarand Patwardhan <mpatwardhan@twilio.com>"
+  ],
+  "license": "BSD-3-Clause",
+  "main": "./lib/index.js",
   "bugs": {
     "url": "https://github.com/twilio/twilio-webrtc.js/issues"
   },
-  "bundleDependencies": false,
-  "contributors": [
-    {
-      "name": "Mark Roberts",
-      "email": "mroberts@twilio.com"
-    },
-    {
-      "name": "Ryan Rowland",
-      "email": "rrowland@twilio.com"
-    },
-    {
-      "name": "Makarand Patwardhan",
-      "email": "mpatwardhan@twilio.com"
-    }
-  ],
-  "deprecated": false,
-  "description": "WebRTC-related APIs and shims used by twilio-video.js",
+  "homepage": "https://github.com/twilio/twilio-webrtc.js#readme",
   "devDependencies": {
     "browserify": "^14.4.0",
     "electron": "9.4.0",
@@ -28086,35 +28598,10 @@ module.exports={
     "twilio-release-tool": "^1.0.0",
     "watchify": "^4.0.0",
     "webrtc-adapter": "^6.4.8"
-  },
-  "homepage": "https://github.com/twilio/twilio-webrtc.js#readme",
-  "keywords": [
-    "shim",
-    "twilio",
-    "video",
-    "webrtc"
-  ],
-  "license": "BSD-3-Clause",
-  "main": "./lib/index.js",
-  "name": "@twilio/webrtc",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/twilio/twilio-webrtc.js.git"
-  },
-  "scripts": {
-    "build": "npm-run-all clean lint test",
-    "clean": "rimraf coverage",
-    "lint": "eslint ./lib",
-    "test": "npm-run-all test:*",
-    "test:integration": "npm-run-all test:integration:*",
-    "test:integration:adapter": "karma start karma/integration.adapter.conf.js",
-    "test:integration:native": "karma start karma/integration.conf.js",
-    "test:unit": "istanbul cover node_modules/mocha/bin/_mocha -- ./test/unit/index.js"
-  },
-  "version": "4.5.1"
+  }
 }
 
-},{}],169:[function(require,module,exports){
+},{}],170:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 
@@ -28145,7 +28632,7 @@ module.exports = function availableTypedArrays() {
 };
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],170:[function(require,module,exports){
+},{}],171:[function(require,module,exports){
 //      Copyright (c) 2012 Mathieu Turcotte
 //      Licensed under the MIT license.
 
@@ -28178,7 +28665,7 @@ module.exports.call = function(fn, vargs, callback) {
     return new FunctionCall(fn, vargs, callback);
 };
 
-},{"./lib/backoff":171,"./lib/function_call.js":172,"./lib/strategy/exponential":173,"./lib/strategy/fibonacci":174}],171:[function(require,module,exports){
+},{"./lib/backoff":172,"./lib/function_call.js":173,"./lib/strategy/exponential":174,"./lib/strategy/fibonacci":175}],172:[function(require,module,exports){
 //      Copyright (c) 2012 Mathieu Turcotte
 //      Licensed under the MIT license.
 
@@ -28245,7 +28732,7 @@ Backoff.prototype.reset = function() {
 
 module.exports = Backoff;
 
-},{"events":179,"precond":192,"util":198}],172:[function(require,module,exports){
+},{"events":180,"precond":193,"util":199}],173:[function(require,module,exports){
 //      Copyright (c) 2012 Mathieu Turcotte
 //      Licensed under the MIT license.
 
@@ -28437,7 +28924,7 @@ FunctionCall.prototype.handleBackoff_ = function(number, delay, err) {
 
 module.exports = FunctionCall;
 
-},{"./backoff":171,"./strategy/fibonacci":174,"events":179,"precond":192,"util":198}],173:[function(require,module,exports){
+},{"./backoff":172,"./strategy/fibonacci":175,"events":180,"precond":193,"util":199}],174:[function(require,module,exports){
 //      Copyright (c) 2012 Mathieu Turcotte
 //      Licensed under the MIT license.
 
@@ -28480,7 +28967,7 @@ ExponentialBackoffStrategy.prototype.reset_ = function() {
 
 module.exports = ExponentialBackoffStrategy;
 
-},{"./strategy":175,"precond":192,"util":198}],174:[function(require,module,exports){
+},{"./strategy":176,"precond":193,"util":199}],175:[function(require,module,exports){
 //      Copyright (c) 2012 Mathieu Turcotte
 //      Licensed under the MIT license.
 
@@ -28510,7 +28997,7 @@ FibonacciBackoffStrategy.prototype.reset_ = function() {
 
 module.exports = FibonacciBackoffStrategy;
 
-},{"./strategy":175,"util":198}],175:[function(require,module,exports){
+},{"./strategy":176,"util":199}],176:[function(require,module,exports){
 //      Copyright (c) 2012 Mathieu Turcotte
 //      Licensed under the MIT license.
 
@@ -28592,7 +29079,7 @@ BackoffStrategy.prototype.reset_ = function() {
 
 module.exports = BackoffStrategy;
 
-},{"events":179,"util":198}],176:[function(require,module,exports){
+},{"events":180,"util":199}],177:[function(require,module,exports){
 'use strict';
 
 var GetIntrinsic = require('get-intrinsic');
@@ -28609,7 +29096,7 @@ module.exports = function callBoundIntrinsic(name, allowMissing) {
 	return intrinsic;
 };
 
-},{"./":177,"get-intrinsic":183}],177:[function(require,module,exports){
+},{"./":178,"get-intrinsic":184}],178:[function(require,module,exports){
 'use strict';
 
 var bind = require('function-bind');
@@ -28658,7 +29145,7 @@ if ($defineProperty) {
 	module.exports.apply = applyBind;
 }
 
-},{"function-bind":182,"get-intrinsic":183}],178:[function(require,module,exports){
+},{"function-bind":183,"get-intrinsic":184}],179:[function(require,module,exports){
 'use strict';
 
 var GetIntrinsic = require('get-intrinsic');
@@ -28675,7 +29162,7 @@ if ($gOPD) {
 
 module.exports = $gOPD;
 
-},{"get-intrinsic":183}],179:[function(require,module,exports){
+},{"get-intrinsic":184}],180:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -29174,7 +29661,7 @@ function eventTargetAgnosticAddListener(emitter, name, listener, flags) {
   }
 }
 
-},{}],180:[function(require,module,exports){
+},{}],181:[function(require,module,exports){
 
 var hasOwn = Object.prototype.hasOwnProperty;
 var toString = Object.prototype.toString;
@@ -29198,7 +29685,7 @@ module.exports = function forEach (obj, fn, ctx) {
 };
 
 
-},{}],181:[function(require,module,exports){
+},{}],182:[function(require,module,exports){
 'use strict';
 
 /* eslint no-invalid-this: 1 */
@@ -29252,14 +29739,14 @@ module.exports = function bind(that) {
     return bound;
 };
 
-},{}],182:[function(require,module,exports){
+},{}],183:[function(require,module,exports){
 'use strict';
 
 var implementation = require('./implementation');
 
 module.exports = Function.prototype.bind || implementation;
 
-},{"./implementation":181}],183:[function(require,module,exports){
+},{"./implementation":182}],184:[function(require,module,exports){
 'use strict';
 
 var undefined;
@@ -29591,7 +30078,7 @@ module.exports = function GetIntrinsic(name, allowMissing) {
 	return value;
 };
 
-},{"function-bind":182,"has":187,"has-symbols":184}],184:[function(require,module,exports){
+},{"function-bind":183,"has":188,"has-symbols":185}],185:[function(require,module,exports){
 'use strict';
 
 var origSymbol = typeof Symbol !== 'undefined' && Symbol;
@@ -29606,7 +30093,7 @@ module.exports = function hasNativeSymbols() {
 	return hasSymbolSham();
 };
 
-},{"./shams":185}],185:[function(require,module,exports){
+},{"./shams":186}],186:[function(require,module,exports){
 'use strict';
 
 /* eslint complexity: [2, 18], max-statements: [2, 33] */
@@ -29650,7 +30137,7 @@ module.exports = function hasSymbols() {
 	return true;
 };
 
-},{}],186:[function(require,module,exports){
+},{}],187:[function(require,module,exports){
 'use strict';
 
 var hasSymbols = require('has-symbols/shams');
@@ -29659,14 +30146,14 @@ module.exports = function hasToStringTagShams() {
 	return hasSymbols() && !!Symbol.toStringTag;
 };
 
-},{"has-symbols/shams":185}],187:[function(require,module,exports){
+},{"has-symbols/shams":186}],188:[function(require,module,exports){
 'use strict';
 
 var bind = require('function-bind');
 
 module.exports = bind.call(Function.call, Object.prototype.hasOwnProperty);
 
-},{"function-bind":182}],188:[function(require,module,exports){
+},{"function-bind":183}],189:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -29695,7 +30182,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],189:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
 'use strict';
 
 var hasToStringTag = require('has-tostringtag/shams')();
@@ -29730,7 +30217,7 @@ isStandardArguments.isLegacyArguments = isLegacyArguments; // for tests
 
 module.exports = supportsStandardArguments ? isStandardArguments : isLegacyArguments;
 
-},{"call-bind/callBound":176,"has-tostringtag/shams":186}],190:[function(require,module,exports){
+},{"call-bind/callBound":177,"has-tostringtag/shams":187}],191:[function(require,module,exports){
 'use strict';
 
 var toStr = Object.prototype.toString;
@@ -29770,7 +30257,7 @@ module.exports = function isGeneratorFunction(fn) {
 	return getProto(fn) === GeneratorFunction;
 };
 
-},{"has-tostringtag/shams":186}],191:[function(require,module,exports){
+},{"has-tostringtag/shams":187}],192:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 
@@ -29834,14 +30321,14 @@ module.exports = function isTypedArray(value) {
 };
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"available-typed-arrays":169,"call-bind/callBound":176,"es-abstract/helpers/getOwnPropertyDescriptor":178,"foreach":180,"has-tostringtag/shams":186}],192:[function(require,module,exports){
+},{"available-typed-arrays":170,"call-bind/callBound":177,"es-abstract/helpers/getOwnPropertyDescriptor":179,"foreach":181,"has-tostringtag/shams":187}],193:[function(require,module,exports){
 /*
  * Copyright (c) 2012 Mathieu Turcotte
  * Licensed under the MIT license.
  */
 
 module.exports = require('./lib/checks');
-},{"./lib/checks":193}],193:[function(require,module,exports){
+},{"./lib/checks":194}],194:[function(require,module,exports){
 /*
  * Copyright (c) 2012 Mathieu Turcotte
  * Licensed under the MIT license.
@@ -29937,7 +30424,7 @@ module.exports.checkIsBoolean = typeCheck('boolean');
 module.exports.checkIsFunction = typeCheck('function');
 module.exports.checkIsObject = typeCheck('object');
 
-},{"./errors":194,"util":198}],194:[function(require,module,exports){
+},{"./errors":195,"util":199}],195:[function(require,module,exports){
 /*
  * Copyright (c) 2012 Mathieu Turcotte
  * Licensed under the MIT license.
@@ -29963,7 +30450,7 @@ IllegalStateError.prototype.name = 'IllegalStateError';
 
 module.exports.IllegalStateError = IllegalStateError;
 module.exports.IllegalArgumentError = IllegalArgumentError;
-},{"util":198}],195:[function(require,module,exports){
+},{"util":199}],196:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -30149,14 +30636,14 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],196:[function(require,module,exports){
+},{}],197:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],197:[function(require,module,exports){
+},{}],198:[function(require,module,exports){
 // Currently in sync with Node.js lib/internal/util/types.js
 // https://github.com/nodejs/node/commit/112cc7c27551254aa2b17098fb774867f05ed0d9
 
@@ -30492,7 +30979,7 @@ exports.isAnyArrayBuffer = isAnyArrayBuffer;
   });
 });
 
-},{"is-arguments":189,"is-generator-function":190,"is-typed-array":191,"which-typed-array":199}],198:[function(require,module,exports){
+},{"is-arguments":190,"is-generator-function":191,"is-typed-array":192,"which-typed-array":200}],199:[function(require,module,exports){
 (function (process){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -31211,7 +31698,7 @@ function callbackify(original) {
 exports.callbackify = callbackify;
 
 }).call(this)}).call(this,require('_process'))
-},{"./support/isBuffer":196,"./support/types":197,"_process":195,"inherits":188}],199:[function(require,module,exports){
+},{"./support/isBuffer":197,"./support/types":198,"_process":196,"inherits":189}],200:[function(require,module,exports){
 (function (global){(function (){
 'use strict';
 
@@ -31270,12 +31757,12 @@ module.exports = function whichTypedArray(value) {
 };
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"available-typed-arrays":169,"call-bind/callBound":176,"es-abstract/helpers/getOwnPropertyDescriptor":178,"foreach":180,"has-tostringtag/shams":186,"is-typed-array":191}],200:[function(require,module,exports){
+},{"available-typed-arrays":170,"call-bind/callBound":177,"es-abstract/helpers/getOwnPropertyDescriptor":179,"foreach":181,"has-tostringtag/shams":187,"is-typed-array":192}],201:[function(require,module,exports){
 module.exports={
   "name": "twilio-video",
   "title": "Twilio Video",
   "description": "Twilio Video JavaScript Library",
-  "version": "2.18.1",
+  "version": "2.19.0",
   "homepage": "https://twilio.com",
   "author": "Mark Andrus Roberts <mroberts@twilio.com>",
   "contributors": [
@@ -31370,7 +31857,8 @@ module.exports={
     "lint:js": "eslint ./lib ./test/*.js ./docker/**/*.js ./test/framework/*.js ./test/lib/*.js ./test/integration/** ./test/unit/** ",
     "lint:ts": "eslint ./tsdef/*.ts ./lib/**/*.ts",
     "lint": "npm-run-all lint:js lint:ts",
-    "test:unit": "npm-run-all build:es5 test:unit:js test:unit:ts",
+    "printVersion": "node --version && npm --version",
+    "test:unit": "npm-run-all printVersion build:es5 test:unit:js test:unit:ts",
     "test:unit:js": "nyc --report-dir=./coverage/js --extension=.js --include=lib/**/* --reporter=html --reporter=lcov --reporter=text mocha ./test/unit/index.js",
     "test:unit:ts": "nyc --report-dir=./coverage/ts --extension=.ts --include=lib/**/* --reporter=html --reporter=lcov --reporter=text mocha -r ts-node/register ./test/unit/index.ts",
     "test:serversiderender": "mocha ./test/serversiderender/index.js",
@@ -31408,7 +31896,7 @@ module.exports={
     "test:framework:install": "npm install chromedriver && npm install selenium-webdriver && npm install geckodriver && npm install puppeteer",
     "test:framework": "npm-run-all test:framework:install test:framework:no-framework test:framework:react",
     "test": "npm-run-all test:unit test:integration",
-    "build:es5": "rimraf ./es5 && tsc tsdef/twilio-video-tests.ts --noEmit && tsc",
+    "build:es5": "rimraf ./es5 && tsc tsdef/twilio-video-tests.ts --noEmit --lib es2018,dom && tsc ",
     "build:js": "node ./scripts/build.js ./src/twilio-video.js ./LICENSE.md ./dist/twilio-video.js",
     "build:min.js": "uglifyjs ./dist/twilio-video.js -o ./dist/twilio-video.min.js --comments \"/^! twilio-video.js/\" -b beautify=false,ascii_only=true",
     "build": "npm-run-all clean lint docs test:unit test:integration build:es5 build:js build:min.js test:umd",
@@ -31418,7 +31906,7 @@ module.exports={
     "clean": "rimraf ./coverage ./es5 ./dist"
   },
   "dependencies": {
-    "@twilio/webrtc": "4.5.1",
+    "@twilio/webrtc": "4.5.2",
     "backoff": "^2.5.0",
     "ws": "^7.4.6",
     "xmlhttprequest": "^1.8.0"
@@ -31429,7 +31917,7 @@ module.exports={
   }
 }
 
-},{}],201:[function(require,module,exports){
+},{}],202:[function(require,module,exports){
 module.exports = WebSocket;
 
 },{}]},{},[11]);

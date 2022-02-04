@@ -37,13 +37,14 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from) {
 };
 var DefaultBackoff = require('backoff');
 var _a = require('@twilio/webrtc'), DefaultMediaStream = _a.MediaStream, DefaultRTCIceCandidate = _a.RTCIceCandidate, DefaultRTCPeerConnection = _a.RTCPeerConnection, DefaultRTCSessionDescription = _a.RTCSessionDescription, getStatistics = _a.getStats;
-var guessBrowser = require('@twilio/webrtc/lib/util').guessBrowser;
+var util = require('@twilio/webrtc/lib/util');
+var guessBrowser = util.guessBrowser;
 var getSdpFormat = require('@twilio/webrtc/lib/util/sdp').getSdpFormat;
 var _b = require('../../util/constants'), DEFAULT_ICE_GATHERING_TIMEOUT_MS = _b.DEFAULT_ICE_GATHERING_TIMEOUT_MS, DEFAULT_LOG_LEVEL = _b.DEFAULT_LOG_LEVEL, DEFAULT_SESSION_TIMEOUT_SEC = _b.DEFAULT_SESSION_TIMEOUT_SEC, iceRestartBackoffConfig = _b.iceRestartBackoffConfig;
-var _c = require('../../util/sdp'), createCodecMapForMediaSection = _c.createCodecMapForMediaSection, disableRtx = _c.disableRtx, enableDtxForOpus = _c.enableDtxForOpus, getMediaSections = _c.getMediaSections, removeSSRCAttributes = _c.removeSSRCAttributes, revertSimulcastForNonVP8MediaSections = _c.revertSimulcastForNonVP8MediaSections, setBitrateParameters = _c.setBitrateParameters, setCodecPreferences = _c.setCodecPreferences, setSimulcast = _c.setSimulcast, unifiedPlanAddOrRewriteNewTrackIds = _c.unifiedPlanAddOrRewriteNewTrackIds, unifiedPlanAddOrRewriteTrackIds = _c.unifiedPlanAddOrRewriteTrackIds, unifiedPlanFilterLocalCodecs = _c.unifiedPlanFilterLocalCodecs;
+var _c = require('../../util/sdp'), createCodecMapForMediaSection = _c.createCodecMapForMediaSection, disableRtx = _c.disableRtx, enableDtxForOpus = _c.enableDtxForOpus, getMediaSections = _c.getMediaSections, removeSSRCAttributes = _c.removeSSRCAttributes, revertSimulcast = _c.revertSimulcast, setBitrateParameters = _c.setBitrateParameters, setCodecPreferences = _c.setCodecPreferences, setSimulcast = _c.setSimulcast, unifiedPlanAddOrRewriteNewTrackIds = _c.unifiedPlanAddOrRewriteNewTrackIds, unifiedPlanAddOrRewriteTrackIds = _c.unifiedPlanAddOrRewriteTrackIds, unifiedPlanFilterLocalCodecs = _c.unifiedPlanFilterLocalCodecs;
 var DefaultTimeout = require('../../util/timeout');
 var _d = require('../../util/twilio-video-errors'), MediaClientLocalDescFailedError = _d.MediaClientLocalDescFailedError, MediaClientRemoteDescFailedError = _d.MediaClientRemoteDescFailedError;
-var _e = require('../../util'), buildLogLevels = _e.buildLogLevels, getPlatform = _e.getPlatform, isChromeScreenShareTrack = _e.isChromeScreenShareTrack, oncePerTick = _e.oncePerTick;
+var _e = require('../../util'), buildLogLevels = _e.buildLogLevels, getPlatform = _e.getPlatform, isChromeScreenShareTrack = _e.isChromeScreenShareTrack, oncePerTick = _e.oncePerTick, defer = _e.defer;
 var IceBox = require('./icebox');
 var DefaultIceConnectionMonitor = require('./iceconnectionmonitor.js');
 var DataTrackReceiver = require('../../data/receiver');
@@ -122,7 +123,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             isRTCRtpSenderParamsSupported: isRTCRtpSenderParamsSupported,
             logLevel: DEFAULT_LOG_LEVEL,
             offerOptions: {},
-            revertSimulcastForNonVP8MediaSections: revertSimulcastForNonVP8MediaSections,
+            revertSimulcast: revertSimulcast,
             sessionTimeout: DEFAULT_SESSION_TIMEOUT_SEC * 1000,
             setBitrateParameters: setBitrateParameters,
             setCodecPreferences: setCodecPreferences,
@@ -260,6 +261,9 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             _rtpSenders: {
                 value: new Map()
             },
+            _rtpNewSenders: {
+                value: new Set()
+            },
             _iceConnectionMonitor: {
                 value: new options.IceConnectionMonitor(peerConnection)
             },
@@ -308,9 +312,6 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
                         return codec === 'opus' && dtx;
                     })
             },
-            _shouldApplySimulcast: {
-                value: (isChrome || isSafari) && preferredCodecs.video.some(function (codecSettings) { return codecSettings.codec.toLowerCase() === 'vp8' && codecSettings.simulcast; })
-            },
             _queuedDescription: {
                 writable: true,
                 value: null
@@ -352,8 +353,8 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             _setSimulcast: {
                 value: options.setSimulcast
             },
-            _revertSimulcastForNonVP8MediaSections: {
-                value: options.revertSimulcastForNonVP8MediaSections
+            _revertSimulcast: {
+                value: options.revertSimulcast
             },
             _RTCIceCandidate: {
                 value: options.RTCIceCandidate
@@ -379,6 +380,9 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             _trackMatcher: {
                 writable: true,
                 value: null
+            },
+            _mediaTrackSenderToPublisherHints: {
+                value: new Map()
             },
             id: {
                 enumerable: true,
@@ -409,6 +413,29 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
     PeerConnectionV2.prototype.toString = function () {
         return "[PeerConnectionV2 #" + this._instanceId + ": " + this.id + "]";
     };
+    PeerConnectionV2.prototype.setEffectiveAdaptiveSimulcast = function (effectiveAdaptiveSimulcast) {
+        this._log.debug('Setting setEffectiveAdaptiveSimulcast: ', effectiveAdaptiveSimulcast);
+        // clear adaptive simulcast from codec preferences if it was set.
+        this._preferredVideoCodecs.forEach(function (cs) {
+            if ('adaptiveSimulcast' in cs) {
+                cs.adaptiveSimulcast = effectiveAdaptiveSimulcast;
+            }
+        });
+    };
+    Object.defineProperty(PeerConnectionV2.prototype, "_shouldApplySimulcast", {
+        get: function () {
+            if (!isChrome && !isSafari) {
+                return false;
+            }
+            // adaptiveSimulcast is set to false after connected message is received if other party does not support it.
+            var simulcast = this._preferredVideoCodecs.some(function (cs) {
+                return cs.codec.toLowerCase() === 'vp8' && cs.simulcast && cs.adaptiveSimulcast !== false;
+            });
+            return simulcast;
+        },
+        enumerable: false,
+        configurable: true
+    });
     Object.defineProperty(PeerConnectionV2.prototype, "connectionState", {
         /**
          * The {@link PeerConnectionV2}'s underlying RTCPeerConnection's RTCPeerConnectionState
@@ -453,35 +480,97 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
         enumerable: false,
         configurable: true
     });
+    Object.defineProperty(PeerConnectionV2.prototype, "_isAdaptiveSimulcastEnabled", {
+        /**
+         * Whether adaptive simulcast is enabled.
+         * @returns {boolean}
+         */
+        get: function () {
+            var adaptiveSimulcastEntry = this._preferredVideoCodecs.find(function (cs) { return 'adaptiveSimulcast' in cs; });
+            return adaptiveSimulcastEntry && adaptiveSimulcastEntry.adaptiveSimulcast === true;
+        },
+        enumerable: false,
+        configurable: true
+    });
     /**
-     * Updates scaleResolutionDownBy for encoding layers.
-     * @param {number} width
-     * @param {number} height
+     * @param {MediaStreamTrack} track
      * @param {Array<RTCRtpEncodingParameters>} encodings
+     * @param {boolean} trackReplaced
+     * @returns {boolean} true if encodings were updated.
      */
-    PeerConnectionV2.prototype._updateEncodings = function (width, height, encodings) {
-        var _this = this;
-        // NOTE(mpatwardhan): All the simulcast encodings in Safari have
-        // the same resolution. So, here we make sure that the lower layers have
-        // lower resolution, as seen in Chrome.
-        var pixelsToMaxActiveLayers = [
-            { pixels: 960 * 540, maxActiveLayers: 3 },
-            { pixels: 480 * 270, maxActiveLayers: 2 },
-            { pixels: 0, maxActiveLayers: 1 }
-        ];
-        var trackPixels = width * height;
-        var activeLayersInfo = pixelsToMaxActiveLayers.find(function (layer) { return trackPixels >= layer.pixels; });
-        var activeLayers = Math.min(encodings.length, activeLayersInfo.maxActiveLayers);
-        encodings.forEach(function (encoding, i) {
-            encoding.active = i < activeLayers;
-            if (encoding.active) {
-                encoding.scaleResolutionDownBy = 1 << (activeLayers - i - 1);
-            }
-            else {
-                delete encoding.scaleResolutionDownBy;
-            }
-            _this._log.debug("setting up simulcast layer " + i + " with active = " + encoding.active + ", scaleResolutionDownBy = " + encoding.scaleResolutionDownBy);
-        });
+    PeerConnectionV2.prototype._maybeUpdateEncodings = function (track, encodings, trackReplaced) {
+        if (trackReplaced === void 0) { trackReplaced = false; }
+        if (track.kind !== 'video') {
+            return false;
+        }
+        var browser = util.guessBrowser();
+        // Note(mpatwardhan): always configure encodings for safari.
+        // for chrome only when adaptive simulcast enabled.
+        if (browser === 'safari' || (browser === 'chrome' && this._isAdaptiveSimulcastEnabled)) {
+            this._updateEncodings(track, encodings, trackReplaced);
+            return true;
+        }
+        return false;
+    };
+    /**
+     * Configures with default encodings depending on track type and resolution.
+     * Default configuration sets some encodings to disabled, and for others set scaleResolutionDownBy
+     * values. When trackReplaced is set to true, it will clear 'active' for any encodings that
+     * needs to be enabled.
+     * @param {MediaStreamTrack} track
+     * @param {Array<RTCRtpEncodingParameters>} encodings
+     * @param {boolean} trackReplaced
+     */
+    PeerConnectionV2.prototype._updateEncodings = function (track, encodings, trackReplaced) {
+        if (this._isChromeScreenShareTrack(track)) {
+            var screenShareActiveLayerConfig_1 = [
+                { scaleResolutionDownBy: 1 },
+                { scaleResolutionDownBy: 1 }
+            ];
+            encodings.forEach(function (encoding, i) {
+                var activeLayerConfig = screenShareActiveLayerConfig_1[i];
+                if (activeLayerConfig) {
+                    encoding.scaleResolutionDownBy = activeLayerConfig.scaleResolutionDownBy;
+                    if (trackReplaced) {
+                        delete encoding.active;
+                    }
+                }
+                else {
+                    encoding.active = false;
+                    delete encoding.scaleResolutionDownBy;
+                }
+            });
+        }
+        else {
+            var _a = track.getSettings(), width = _a.width, height = _a.height;
+            // NOTE(mpatwardhan): for non-screen share tracks
+            // enable layers depending on track resolutions
+            var pixelsToMaxActiveLayers = [
+                { pixels: 960 * 540, maxActiveLayers: 3 },
+                { pixels: 480 * 270, maxActiveLayers: 2 },
+                { pixels: 0, maxActiveLayers: 1 }
+            ];
+            var trackPixels_1 = width * height;
+            var activeLayersInfo = pixelsToMaxActiveLayers.find(function (layer) { return trackPixels_1 >= layer.pixels; });
+            var activeLayers_1 = Math.min(encodings.length, activeLayersInfo.maxActiveLayers);
+            encodings.forEach(function (encoding, i) {
+                var enabled = i < activeLayers_1;
+                if (enabled) {
+                    encoding.scaleResolutionDownBy = 1 << (activeLayers_1 - i - 1);
+                    if (trackReplaced) {
+                        delete encoding.active;
+                    }
+                }
+                else {
+                    encoding.active = false;
+                    delete encoding.scaleResolutionDownBy;
+                }
+            });
+        }
+        this._log.debug('_updateEncodings:', encodings.map(function (_a, i) {
+            var active = _a.active, scaleResolutionDownBy = _a.scaleResolutionDownBy;
+            return "[" + i + ": " + active + ", " + (scaleResolutionDownBy || 0) + "]";
+        }).join(', '));
     };
     /**
      * Add an ICE candidate to the {@link PeerConnectionV2}.
@@ -601,7 +690,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
                 // NOTE(syerrapragada): VMS does not support H264 simulcast. So,
                 // unset simulcast for sections in local offer where corresponding
                 // sections in answer doesn't have vp8 as preferred codec and reapply offer.
-                updatedSdp = _this._revertSimulcastForNonVP8MediaSections(updatedSdp, sdpWithoutSimulcast, offer.sdp);
+                updatedSdp = _this._revertSimulcast(updatedSdp, sdpWithoutSimulcast, offer.sdp);
             }
             // NOTE(mmalavalli): Work around Chromium bug 1074421.
             // https://bugs.chromium.org/p/chromium/issues/detail?id=1074421
@@ -873,7 +962,9 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             log.debug("Starting ICE reconnect timeout: " + delay);
             this._iceReconnectTimeout.start();
         }
-        this.offer();
+        this.offer().catch(function (ex) {
+            log.error("offer failed in _initiateIceRestart with: " + ex.message);
+        });
     };
     /**
      * Schedule an ICE Restart.
@@ -1071,7 +1162,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             });
         }
         return this._peerConnection.setLocalDescription(description).catch(function (error) {
-            _this._log.warn("Calling setLocalDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".");
+            _this._log.warn("Calling setLocalDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".", error);
             var errorToThrow = new MediaClientLocalDescFailedError();
             var publishWarning = {
                 message: "Calling setLocalDescription with an RTCSessionDescription of type \"" + description.type + "\" failed",
@@ -1149,8 +1240,13 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             // NOTE(syerrapragada): VMS does not support H264 simulcast. So,
             // unset simulcast for sections in local offer where corresponding
             // sections in answer doesn't have vp8 as preferred codec and reapply offer.
-            if (description.type === 'answer' && _this._shouldApplySimulcast) {
-                var sdpWithoutSimulcastForNonVP8MediaSections = _this._revertSimulcastForNonVP8MediaSections(_this._localDescription.sdp, _this._localDescriptionWithoutSimulcast.sdp, description.sdp);
+            if (description.type === 'answer' && _this._localDescriptionWithoutSimulcast) {
+                // NOTE(mpatwardhan):if we were using adaptive simulcast, and if its not supported by server
+                // revert simulcast even for vp8.
+                var adaptiveSimulcastEntry = _this._preferredVideoCodecs.find(function (cs) { return 'adaptiveSimulcast' in cs; });
+                var revertForAll = !!adaptiveSimulcastEntry && adaptiveSimulcastEntry.adaptiveSimulcast === false;
+                var sdpWithoutSimulcastForNonVP8MediaSections = _this._revertSimulcast(_this._localDescription.sdp, _this._localDescriptionWithoutSimulcast.sdp, description.sdp, revertForAll);
+                _this._localDescriptionWithoutSimulcast = null;
                 if (sdpWithoutSimulcastForNonVP8MediaSections !== _this._localDescription.sdp) {
                     return _this._rollbackAndApplyOffer({
                         type: _this._localDescription.type,
@@ -1167,7 +1263,7 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
                 negotiationCompleted(_this);
             }
         }, function (error) {
-            _this._log.warn("Calling setRemoteDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".");
+            _this._log.warn("Calling setRemoteDescription with an RTCSessionDescription of type \"" + description.type + "\" failed with the error \"" + error.message + "\".", error);
             if (description.sdp) {
                 _this._log.warn("The SDP was " + description.sdp);
             }
@@ -1291,12 +1387,82 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             this._log.warn("Error creating an RTCDataChannel for DataTrack \"" + dataTrackSender.id + "\": " + error.message);
         }
     };
+    PeerConnectionV2.prototype._handleQueuedPublisherHints = function () {
+        var _this = this;
+        if (this._peerConnection.signalingState === 'stable') {
+            this._mediaTrackSenderToPublisherHints.forEach(function (_a, mediaTrackSender) {
+                var deferred = _a.deferred, encodings = _a.encodings;
+                _this._mediaTrackSenderToPublisherHints.delete(mediaTrackSender);
+                _this._setPublisherHint(mediaTrackSender, encodings)
+                    .then(function (result) { return deferred.resolve(result); })
+                    .catch(function (error) { return deferred.reject(error); });
+            });
+        }
+    };
+    /**
+     * updates encodings for simulcast layers of given sender.
+     * @param {RTCRtpSender} sender
+     * @param {Array<{enabled: boolean, layer_index: number}>|null} encodings
+     * @returns {Promise<string>} string indicating result of the operation. can be one of
+     *  "OK", "INVALID_HINT", "COULD_NOT_APPLY_HINT", "UNKNOWN_TRACK"
+     */
+    PeerConnectionV2.prototype._setPublisherHint = function (mediaTrackSender, encodings) {
+        var _this = this;
+        if (isFirefox) {
+            return Promise.resolve('COULD_NOT_APPLY_HINT');
+        }
+        if (this._mediaTrackSenderToPublisherHints.has(mediaTrackSender)) {
+            // skip any stale hint associated with the mediaTrackSender.
+            var queuedHint = this._mediaTrackSenderToPublisherHints.get(mediaTrackSender);
+            queuedHint.deferred.resolve('REQUEST_SKIPPED');
+            this._mediaTrackSenderToPublisherHints.delete(mediaTrackSender);
+        }
+        var sender = this._rtpSenders.get(mediaTrackSender);
+        if (!sender) {
+            this._log.warn('Could not apply publisher hint because RTCRtpSender was not found');
+            return Promise.resolve('UNKNOWN_TRACK');
+        }
+        if (this._peerConnection.signalingState === 'closed') {
+            this._log.warn('Could not apply publisher hint because signalingState was "closed"');
+            return Promise.resolve('COULD_NOT_APPLY_HINT');
+        }
+        if (this._peerConnection.signalingState !== 'stable') {
+            // enqueue this hint to be applied when pc becomes stable.
+            this._log.debug('Queuing up publisher hint because signalingState:', this._peerConnection.signalingState);
+            var deferred = defer();
+            this._mediaTrackSenderToPublisherHints.set(mediaTrackSender, { deferred: deferred, encodings: encodings });
+            return deferred.promise;
+        }
+        var parameters = sender.getParameters();
+        if (encodings !== null) {
+            encodings.forEach(function (_a) {
+                var enabled = _a.enabled, layerIndex = _a.layer_index;
+                if (parameters.encodings.length > layerIndex) {
+                    _this._log.debug("layer:" + layerIndex + ", active:" + parameters.encodings[layerIndex].active + " => " + enabled);
+                    parameters.encodings[layerIndex].active = enabled;
+                }
+                else {
+                    _this._log.warn("invalid layer:" + layerIndex + ", active:" + enabled);
+                }
+            });
+        }
+        // Note(mpatwardhan): after publisher hints are applied, overwrite with default encodings
+        // to disable any encoding that shouldn't have been enabled by publisher_hints.
+        // When encodings===null (that is we are asked to reset encodings for replaceTrack)
+        // along with disabling encodings, clear active flag for encodings that should not be disabled
+        this._maybeUpdateEncodings(sender.track, parameters.encodings, encodings === null /* trackReplaced */);
+        return sender.setParameters(parameters).then(function () { return 'OK'; }).catch(function (error) {
+            _this._log.error('Failed to apply publisher hints:', error);
+            return 'COULD_NOT_APPLY_HINT';
+        });
+    };
     /**
      * Add the {@link MediaTrackSender} to the {@link PeerConnectionV2}.
      * @param {MediaTrackSender} mediaTrackSender
      * @returns {void}
      */
     PeerConnectionV2.prototype.addMediaTrackSender = function (mediaTrackSender) {
+        var _this = this;
         if (this._peerConnection.signalingState === 'closed' || this._rtpSenders.has(mediaTrackSender)) {
             return;
         }
@@ -1309,7 +1475,8 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             var transceiver = this._addOrUpdateTransceiver(mediaTrackSender.track);
             sender = transceiver.sender;
         }
-        mediaTrackSender.addSender(sender);
+        mediaTrackSender.addSender(sender, function (encodings) { return _this._setPublisherHint(mediaTrackSender, encodings); });
+        this._rtpNewSenders.add(sender);
         this._rtpSenders.set(mediaTrackSender, sender);
     };
     /**
@@ -1407,6 +1574,13 @@ var PeerConnectionV2 = /** @class */ (function (_super) {
             this._localMediaStream.removeTrack(mediaTrackSender.track);
         }
         mediaTrackSender.removeSender(sender);
+        // clean up any pending publisher hints associated with this mediaTrackSender.
+        if (this._mediaTrackSenderToPublisherHints.has(mediaTrackSender)) {
+            var queuedHint = this._mediaTrackSenderToPublisherHints.get(mediaTrackSender);
+            queuedHint.deferred.resolve('UNKNOWN_TRACK');
+            this._mediaTrackSenderToPublisherHints.delete(mediaTrackSender);
+        }
+        this._rtpNewSenders.delete(sender);
         this._rtpSenders.delete(mediaTrackSender);
     };
     /**
@@ -1635,7 +1809,10 @@ function negotiationCompleted(pcv2) {
         updateRemoteCodecMaps(pcv2);
     }
     if (pcv2._isRTCRtpSenderParamsSupported) {
-        updateEncodingParameters(pcv2);
+        updateEncodingParameters(pcv2).then(function () {
+            // if there any any publisher hints queued, apply them now.
+            pcv2._handleQueuedPublisherHints();
+        });
     }
 }
 /**
@@ -1649,6 +1826,7 @@ function updateEncodingParameters(pcv2) {
         ['audio', maxAudioBitrate],
         ['video', maxVideoBitrate]
     ]);
+    var promises = [];
     pcv2._peerConnection.getSenders().filter(function (sender) { return sender.track; }).forEach(function (sender) {
         var maxBitrate = maxBitrates.get(sender.track.kind);
         var params = sender.getParameters();
@@ -1671,14 +1849,16 @@ function updateEncodingParameters(pcv2) {
             // by RTCRtpSender.setParameters() being rejected.
             params.encodings[0].networkPriority = 'high';
         }
-        if (isSafari && sender.track.kind === 'video') {
-            var _a = sender.track.getSettings(), width = _a.width, height = _a.height;
-            pcv2._updateEncodings(width, height, params.encodings);
-        }
-        sender.setParameters(params).catch(function (error) {
+        // when a sender is reused, delete any active encodings set by server.
+        var trackReplaced = pcv2._rtpNewSenders.has(sender);
+        pcv2._maybeUpdateEncodings(sender.track, params.encodings, trackReplaced);
+        pcv2._rtpNewSenders.delete(sender);
+        var promise = sender.setParameters(params).catch(function (error) {
             pcv2._log.warn("Error while setting encodings parameters for " + sender.track.kind + " Track " + sender.track.id + ": " + (error.message || error.name));
         });
+        promises.push(promise);
     });
+    return Promise.all(promises);
 }
 /**
  * Remove maxBitrate from the RTCRtpSendParameters' encodings.

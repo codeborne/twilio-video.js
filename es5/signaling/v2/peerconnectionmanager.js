@@ -141,6 +141,14 @@ var PeerConnectionManager = /** @class */ (function (_super) {
         });
         return _this;
     }
+    PeerConnectionManager.prototype.setEffectiveAdaptiveSimulcast = function (effectiveAdaptiveSimulcast) {
+        this._peerConnections.forEach(function (pc) { return pc.setEffectiveAdaptiveSimulcast(effectiveAdaptiveSimulcast); });
+        this._preferredCodecs.video.forEach(function (cs) {
+            if ('adaptiveSimulcast' in cs) {
+                cs.adaptiveSimulcast = effectiveAdaptiveSimulcast;
+            }
+        });
+    };
     Object.defineProperty(PeerConnectionManager.prototype, "connectionState", {
         /**
          * A summarized RTCPeerConnectionState across all the

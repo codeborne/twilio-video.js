@@ -4,6 +4,7 @@
 const assert = require('assert');
 const { EventEmitter } = require('events');
 const { getUserMedia } = require('@twilio/webrtc');
+const sinon = require('sinon');
 
 const connect = require('../../../es5/connect');
 const { audio: createLocalAudioTrack, video: createLocalVideoTrack } = require('../../../es5/createlocaltrack');
@@ -122,6 +123,53 @@ describe('connect', function() {
         assert(/level must be one of/.test(error.message));
       }
       assert(cancelablePromise instanceof CancelablePromise);
+    });
+  });
+
+  describe('preferredVideoCodecs = auto', () => {
+    it('should rejects with a TypeError when maxVideoBitrate is specified at connect', async () => {
+      const identity = randomName();
+      const token = getToken(identity);
+      const cancelablePromise = connect(token, Object.assign({}, defaults, {
+        tracks: [],
+        preferredVideoCodecs: 'auto',
+        maxVideoBitrate: 10000,
+      }));
+
+      let errorThrown = null;
+      try {
+        await cancelablePromise;
+      } catch (error) {
+        errorThrown = error;
+      }
+      assert(errorThrown instanceof TypeError);
+      assert(cancelablePromise instanceof CancelablePromise);
+    });
+
+    it('should throw on subsequent setParameters if maxVideoBitrate is specified', async () => {
+      const identity = randomName();
+      const token = getToken(identity);
+      const room = await connect(token, Object.assign({}, defaults, {
+        tracks: [],
+        preferredVideoCodecs: 'auto'
+      }));
+
+      let errorThrown = null;
+      try {
+        room.localParticipant.setParameters({ maxAudioBitrate: 100 });
+      } catch (error) {
+        errorThrown = error;
+      }
+      assert(!errorThrown);
+
+      try {
+        room.localParticipant.setParameters({ maxVideoBitrate: 100 });
+      } catch (error) {
+        errorThrown = error;
+      }
+      assert(errorThrown);
+      assert.equal(errorThrown.message, 'encodingParameters must be an encodingParameters.maxVideoBitrate is not compatible with "preferredVideoCodecs=auto"');
+      assert(errorThrown instanceof TypeError);
     });
   });
 
@@ -673,6 +721,52 @@ describe('connect', function() {
     });
   });
 
+  describe('called with a Room name and', () => {
+    let sid;
+    let cancelablePromise;
+
+    before(async () => {
+      sid = await createRoom(randomName(), defaults.topology);
+      const options = Object.assign({ name: sid, tracks: [] }, defaults);
+      cancelablePromise = connect(getToken(randomName()), options);
+    });
+
+    after(() => completeRoom(sid));
+
+    it('should return a promise', async () => {
+      const onFinally = sinon.stub();
+      await cancelablePromise.finally(onFinally);
+      sinon.assert.calledOnce(onFinally);
+    });
+
+    it('should resolve with a room and finally is called', async () => {
+      const onFinally = sinon.stub();
+      let room;
+      let errorThrown = null;
+      try {
+        room = await cancelablePromise.finally(onFinally);
+      } catch (error) {
+        errorThrown = error;
+      }
+      sinon.assert.calledOnce(onFinally);
+      assert(!errorThrown);
+      assert(room instanceof Room);
+    });
+
+    it('should reject and finally is called', async () => {
+      const onFinally = sinon.stub();
+      let err;
+      try {
+        await cancelablePromise.finally(onFinally);
+        throw new Error('Connecting to room, but expecting to cancel');
+      } catch (error) {
+        err = error;
+      }
+      assert(err);
+      sinon.assert.calledOnce(onFinally);
+    });
+  });
+
   (isRTCRtpSenderParamsSupported ? describe : describe.skip)('DSCP tagging', () => {
     combinationContext([
       [
@@ -780,15 +874,15 @@ describe('connect', function() {
       let thoseRooms;
 
       before(async () => {
-        [sid, thisRoom, thoseRooms, peerConnections] = await setup({
+        [sid, thisRoom, thoseRooms, peerConnections] = await waitFor(setup({
           testOptions: encodingParameters,
           otherOptions: { tracks: [] },
           nTracks: 0
-        });
+        }), 'setting up room');
 
         // Grab 5 samples. This is also enough time for RTCRtpSender.setParameters() to take effect
         // if applying bandwidth constraints, which is an asynchronous operation
-        const bitrates = await pollOutgoingBitrate(thisRoom, 5);
+        const bitrates = await waitFor(pollOutgoingBitrate(thisRoom, 5), `polling outgoing bitrate: ${thisRoom.sid}`);
 
         const average = items => {
           let avg = items.reduce((x, y) => x + y) / items.length;

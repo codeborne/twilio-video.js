@@ -16,7 +16,9 @@ var __extends = (this && this.__extends) || (function () {
 })();
 var LocalParticipantSignaling = require('../localparticipant');
 var LocalTrackPublicationV2 = require('./localtrackpublication');
-var isDeepEqual = require('../../util').isDeepEqual;
+var DEFAULT_LOG_LEVEL = require('../../util/constants').DEFAULT_LOG_LEVEL;
+var Log = require('../../util/log');
+var _a = require('../../util'), buildLogLevels = _a.buildLogLevels, isDeepEqual = _a.isDeepEqual;
 /**
  * @extends ParticipantSignaling
  * @property {BandwidthProfileOptions} bandwidthProfile
@@ -35,9 +37,11 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
     function LocalParticipantV2(encodingParameters, networkQualityConfiguration, options) {
         var _this = this;
         options = Object.assign({
+            logLevel: DEFAULT_LOG_LEVEL,
             LocalTrackPublicationV2: LocalTrackPublicationV2
         }, options);
         _this = _super.call(this) || this;
+        var logLevels = buildLogLevels(options.logLevel);
         Object.defineProperties(_this, {
             _bandwidthProfile: {
                 value: null,
@@ -55,6 +59,11 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
             },
             _LocalTrackPublicationV2: {
                 value: options.LocalTrackPublicationV2
+            },
+            _log: {
+                value: options.log
+                    ? options.log.createLog('default', _this)
+                    : new Log('default', _this, logLevels, options.loggerName)
             },
             _publishedRevision: {
                 writable: true,
@@ -99,6 +108,9 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
         });
         return _this;
     }
+    LocalParticipantV2.prototype.toString = function () {
+        return "[LocalParticipantSignaling: " + this.sid + "]";
+    };
     /**
      * Set the signalingRegion.
      * @param {string} signalingRegion.
@@ -121,6 +133,13 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
             this._bandwidthProfileRevision++;
             this.didUpdate();
         }
+    };
+    /**
+     * returns current {@link EncodingParametersImpl}.
+     * @returns {EncodingParametersImpl}
+     */
+    LocalParticipantV2.prototype.getParameters = function () {
+        return this._encodingParameters;
     };
     /**
      * Set the {@link EncodingParameters}.
@@ -241,6 +260,21 @@ var LocalParticipantV2 = /** @class */ (function (_super) {
      */
     LocalParticipantV2.prototype.setNetworkQualityConfiguration = function (networkQualityConfiguration) {
         this.networkQualityConfiguration.update(networkQualityConfiguration);
+    };
+    /**
+     * updates encodings for simulcast layers.
+     * @param {Track.SID} trackSid
+     * @param {Array<{enabled: boolean, layer_index: number}>} encodings
+     * @returns {Promise<string>} string indicating result of the operation. can be one of
+     *  "OK", "INVALID_HINT", "COULD_NOT_APPLY_HINT", "UNKNOWN_TRACK"
+     */
+    LocalParticipantV2.prototype.setPublisherHint = function (trackSid, encodings) {
+        var trackSignaling = Array.from(this.tracks.values()).find(function (trackPub) { return trackPub.sid === trackSid; });
+        if (!trackSignaling) {
+            this._log.warn("track:" + trackSid + " not found");
+            return Promise.resolve('UNKNOWN_TRACK');
+        }
+        return trackSignaling.trackTransceiver.setPublisherHint(encodings);
     };
     return LocalParticipantV2;
 }(LocalParticipantSignaling));

@@ -385,9 +385,12 @@ function unifiedPlanFilterLocalCodecs(localSdp, remoteSdp) {
  * @param localSdp - simulcast enabled local sdp
  * @param localSdpWithoutSimulcast - local sdp before simulcast was set
  * @param remoteSdp - remote sdp
+ * @param revertForAll - when true simulcast will be reverted for all codecs. when false it will be reverted
+ *  only for non-vp8 codecs.
  * @return {string} Updated SDP string
  */
-function revertSimulcastForNonVP8MediaSections(localSdp, localSdpWithoutSimulcast, remoteSdp) {
+function revertSimulcast(localSdp, localSdpWithoutSimulcast, remoteSdp, revertForAll) {
+    if (revertForAll === void 0) { revertForAll = false; }
     var remoteMidToMediaSections = createMidToMediaSectionMap(remoteSdp);
     var localMidToMediaSectionsWithoutSimulcast = createMidToMediaSectionMap(localSdpWithoutSimulcast);
     var mediaSections = getMediaSections(localSdp);
@@ -406,7 +409,8 @@ function revertSimulcastForNonVP8MediaSections(localSdp, localSdpWithoutSimulcas
         var remotePtToCodecs = createPtToCodecName(remoteSection);
         var remotePayloadTypes = getPayloadTypesInMediaSection(remoteSection);
         var isVP8ThePreferredCodec = remotePayloadTypes.length && remotePtToCodecs.get(remotePayloadTypes[0]) === 'vp8';
-        return isVP8ThePreferredCodec ? section : localMidToMediaSectionsWithoutSimulcast.get(mid).replace(/\r\n$/, '');
+        var shouldRevertSimulcast = revertForAll || !isVP8ThePreferredCodec;
+        return shouldRevertSimulcast ? localMidToMediaSectionsWithoutSimulcast.get(mid).replace(/\r\n$/, '') : section;
     })).concat('').join('\r\n');
 }
 /**
@@ -591,7 +595,7 @@ exports.disableRtx = disableRtx;
 exports.enableDtxForOpus = enableDtxForOpus;
 exports.getMediaSections = getMediaSections;
 exports.removeSSRCAttributes = removeSSRCAttributes;
-exports.revertSimulcastForNonVP8MediaSections = revertSimulcastForNonVP8MediaSections;
+exports.revertSimulcast = revertSimulcast;
 exports.setBitrateParameters = setBitrateParameters;
 exports.setCodecPreferences = setCodecPreferences;
 exports.setSimulcast = setSimulcast;

@@ -309,6 +309,8 @@ function restartWhenInadvertentlyStopped(localMediaTrack) {
             // after the MediaStreamTrack is re-acquired.
             var promise = (trackChangeInProgress && trackChangeInProgress.promise) || Promise.resolve();
             return promise.finally(function () { return localMediaRestartDeferreds.resolveDeferred(kind); });
+        }).catch(function (ex) {
+            log.error("error in maybeRestart: " + ex.message);
         });
     }
     function onMute() {

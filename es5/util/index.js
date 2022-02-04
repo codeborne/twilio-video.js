@@ -602,12 +602,26 @@ function createRoomConnectEventPayload(connectOptions) {
         eventProp = eventProp || prop;
         payload[eventProp] = boolToString(!!connectOptions[prop]);
     });
-    // numbers and string properties.
-    [['maxVideoBitrate'], ['maxAudioBitrate'], ['iceTransportPolicy'], ['region'], ['name', 'roomName']].forEach(function (_a) {
+    // numbers properties.
+    [['maxVideoBitrate'], ['maxAudioBitrate']].forEach(function (_a) {
         var _b = __read(_a, 2), prop = _b[0], eventProp = _b[1];
         eventProp = eventProp || prop;
-        if (typeof connectOptions[prop] === 'number' || typeof connectOptions[prop] === 'string') {
+        if (typeof connectOptions[prop] === 'number') {
             payload[eventProp] = connectOptions[prop];
+        }
+        else if (!isNaN(Number(connectOptions[prop]))) {
+            payload[eventProp] = Number(connectOptions[prop]);
+        }
+    });
+    // string properties.
+    [['iceTransportPolicy'], ['region'], ['name', 'roomName']].forEach(function (_a) {
+        var _b = __read(_a, 2), prop = _b[0], eventProp = _b[1];
+        eventProp = eventProp || prop;
+        if (typeof connectOptions[prop] === 'string') {
+            payload[eventProp] = connectOptions[prop];
+        }
+        else if (typeof connectOptions[prop] === 'number' && prop === 'name') {
+            payload[eventProp] = connectOptions[prop].toString();
         }
     });
     // array props stringified.
@@ -691,7 +705,7 @@ function createBandwidthProfileVideoPayload(bandwidthProfileVideo) {
  *   protocol or not.
  * @returns {object}
  */
-function createMediaSignalingPayload(dominantSpeaker, networkQuality, trackPriority, trackSwitchOff, renderHints) {
+function createMediaSignalingPayload(dominantSpeaker, networkQuality, trackPriority, trackSwitchOff, adaptiveSimulcast, renderHints) {
     var transports = { transports: [{ type: 'data-channel' }] };
     return Object.assign(dominantSpeaker
         // eslint-disable-next-line
@@ -702,6 +716,9 @@ function createMediaSignalingPayload(dominantSpeaker, networkQuality, trackPrior
         : {}, renderHints
         // eslint-disable-next-line
         ? { render_hints: transports }
+        : {}, adaptiveSimulcast
+        // eslint-disable-next-line
+        ? { publisher_hints: transports }
         : {}, trackPriority
         // eslint-disable-next-line
         ? { track_priority: transports }
@@ -796,8 +813,7 @@ function inRange(num, min, max) {
 function isChromeScreenShareTrack(track) {
     // NOTE(mpatwardhan): Chrome creates screen share tracks with label like: "screen:69734272*"
     // we will check for label that starts with "screen:D" where D being a digit.
-    var isChrome = util.guessBrowser() === 'chrome';
-    return isChrome && track.kind === 'video' && track.label && (/^screen:[0-9]+/.test(track.label) || /^web-contents-media-stream:[0-9/]+/.test(track.label) || /^window:[0-9]+/.test(track.label));
+    return util.guessBrowser() === 'chrome' && track.kind === 'video' && 'displaySurface' in track.getSettings();
 }
 /**
  * returns true if given MediaStreamTrack is a user media track

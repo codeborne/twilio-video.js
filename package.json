@@ -2,7 +2,7 @@
   "name": "twilio-video",
   "title": "Twilio Video",
   "description": "Twilio Video JavaScript Library",
-  "version": "2.18.1",
+  "version": "2.19.0",
   "homepage": "https://twilio.com",
   "author": "Mark Andrus Roberts <mroberts@twilio.com>",
   "contributors": [
@@ -97,7 +97,8 @@
     "lint:js": "eslint ./lib ./test/*.js ./docker/**/*.js ./test/framework/*.js ./test/lib/*.js ./test/integration/** ./test/unit/** ",
     "lint:ts": "eslint ./tsdef/*.ts ./lib/**/*.ts",
     "lint": "npm-run-all lint:js lint:ts",
-    "test:unit": "npm-run-all build:es5 test:unit:js test:unit:ts",
+    "printVersion": "node --version && npm --version",
+    "test:unit": "npm-run-all printVersion build:es5 test:unit:js test:unit:ts",
     "test:unit:js": "nyc --report-dir=./coverage/js --extension=.js --include=lib/**/* --reporter=html --reporter=lcov --reporter=text mocha ./test/unit/index.js",
     "test:unit:ts": "nyc --report-dir=./coverage/ts --extension=.ts --include=lib/**/* --reporter=html --reporter=lcov --reporter=text mocha -r ts-node/register ./test/unit/index.ts",
     "test:serversiderender": "mocha ./test/serversiderender/index.js",
@@ -135,7 +136,7 @@
     "test:framework:install": "npm install chromedriver && npm install selenium-webdriver && npm install geckodriver && npm install puppeteer",
     "test:framework": "npm-run-all test:framework:install test:framework:no-framework test:framework:react",
     "test": "npm-run-all test:unit test:integration",
-    "build:es5": "rimraf ./es5 && tsc tsdef/twilio-video-tests.ts --noEmit && tsc",
+    "build:es5": "rimraf ./es5 && tsc tsdef/twilio-video-tests.ts --noEmit --lib es2018,dom && tsc ",
     "build:js": "node ./scripts/build.js ./src/twilio-video.js ./LICENSE.md ./dist/twilio-video.js",
     "build:min.js": "uglifyjs ./dist/twilio-video.js -o ./dist/twilio-video.min.js --comments \"/^! twilio-video.js/\" -b beautify=false,ascii_only=true",
     "build": "npm-run-all clean lint docs test:unit test:integration build:es5 build:js build:min.js test:umd",
@@ -145,7 +146,7 @@
     "clean": "rimraf ./coverage ./es5 ./dist"
   },
   "dependencies": {
-    "@twilio/webrtc": "github:codeborne/twilio-webrtc.js#4.5.1-cb",
+    "@twilio/webrtc": "github:codeborne/twilio-webrtc.js#4.5.2-cb",
     "backoff": "^2.5.0",
     "ws": "^7.4.6",
     "xmlhttprequest": "^1.8.0"

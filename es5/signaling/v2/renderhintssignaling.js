@@ -16,7 +16,9 @@ var __extends = (this && this.__extends) || (function () {
     };
 })();
 var MediaSignaling = require('./mediasignaling');
+var Timeout = require('../../util/timeout');
 var isDeepEqual = require('../../util').isDeepEqual;
+var RENDER_HINT_RESPONSE_TIME_MS = 2000; // time to wait for server response (before resending all hints.)
 var messageId = 1;
 var RenderHintsSignaling = /** @class */ (function (_super) {
     __extends(RenderHintsSignaling, _super);
@@ -29,9 +31,12 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
             _trackSidsToRenderHints: {
                 value: new Map()
             },
-            _isResponsePending: {
-                value: false,
-                writable: true,
+            _responseTimer: {
+                value: new Timeout(function () {
+                    _this._sendAllHints();
+                    // once timer fires, for next round double the delay.
+                    _this._responseTimer.setDelay(_this._responseTimer.delay * 2);
+                }, RENDER_HINT_RESPONSE_TIME_MS, false),
             }
         });
         _this.on('ready', function (transport) {
@@ -47,23 +52,29 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
                 }
             });
             // NOTE(mpatwardhan): When transport is set (either 1st time of after vms failover)
-            // resend all track states. For this simply mark all tracks as dirty.
-            Array.from(_this._trackSidsToRenderHints.keys()).forEach(function (trackSid) {
-                var trackState = _this._trackSidsToRenderHints.get(trackSid);
-                if (trackState.renderDimensions) {
-                    trackState.isDimensionDirty = true;
-                }
-                if ('enabled' in trackState) {
-                    trackState.isEnabledDirty = true;
-                }
-            });
-            _this._sendHints();
+            // resend all track states.
+            _this._sendAllHints();
         });
         return _this;
     }
+    RenderHintsSignaling.prototype._sendAllHints = function () {
+        var _this = this;
+        // to force sending all hints simply mark all tracks as dirty.
+        Array.from(this._trackSidsToRenderHints.keys()).forEach(function (trackSid) {
+            var trackState = _this._trackSidsToRenderHints.get(trackSid);
+            if (trackState.renderDimensions) {
+                trackState.isDimensionDirty = true;
+            }
+            if ('enabled' in trackState) {
+                trackState.isEnabledDirty = true;
+            }
+        });
+        this._sendHints();
+    };
     RenderHintsSignaling.prototype._processHintResults = function (hintResults) {
         var _this = this;
-        this._isResponsePending = false;
+        this._responseTimer.clear();
+        this._responseTimer.setDelay(RENDER_HINT_RESPONSE_TIME_MS);
         hintResults.forEach(function (hintResult) {
             if (hintResult.result !== 'OK') {
                 _this._log.debug('Server error processing hint:', hintResult);
@@ -73,7 +84,7 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
     };
     RenderHintsSignaling.prototype._sendHints = function () {
         var _this = this;
-        if (!this._transport || this._isResponsePending) {
+        if (!this._transport || this._responseTimer.isSet) {
             return;
         }
         var hints = [];
@@ -105,7 +116,7 @@ var RenderHintsSignaling = /** @class */ (function (_super) {
             };
             this._log.debug('Outgoing: ', payLoad);
             this._transport.publish(payLoad);
-            this._isResponsePending = true;
+            this._responseTimer.start();
         }
     };
     /**

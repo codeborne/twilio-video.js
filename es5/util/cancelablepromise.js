@@ -125,6 +125,17 @@ var CancelablePromise = /** @class */ (function () {
             promise.then.apply(promise, __spreadArray([], __read(args))).then(resolve, reject);
         }, this._onCancel);
     };
+    /**
+   * @param {?function} onFinally
+   * @returns {CancelablePromise}
+   */
+    CancelablePromise.prototype.finally = function () {
+        var args = [].slice.call(arguments);
+        var promise = this._promise;
+        return new CancelablePromise(function onCreate(resolve, reject) {
+            promise.finally.apply(promise, __spreadArray([], __read(args))).then(resolve, reject);
+        }, this._onCancel);
+    };
     return CancelablePromise;
 }());
 module.exports = CancelablePromise;

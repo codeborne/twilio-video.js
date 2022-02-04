@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 'use strict';
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
@@ -40,6 +41,7 @@ var StatsReport = require('../../stats/statsreport');
 var TrackPrioritySignaling = require('./trackprioritysignaling');
 var TrackSwitchOffSignaling = require('./trackswitchoffsignaling');
 var RenderHintsSignaling = require('./renderhintssignaling');
+var PublisherHintsSignaling = require('./publisherhintsignaling.js');
 var _a = require('../../util'), DEFAULT_SESSION_TIMEOUT_SEC = _a.constants.DEFAULT_SESSION_TIMEOUT_SEC, createBandwidthProfilePayload = _a.createBandwidthProfilePayload, defer = _a.defer, difference = _a.difference, filterObject = _a.filterObject, flatMap = _a.flatMap, oncePerTick = _a.oncePerTick;
 var MovingAverageDelta = require('../../util/movingaveragedelta');
 var createTwilioError = require('../../util/twilio-video-errors').createTwilioError;
@@ -121,6 +123,9 @@ var RoomV2 = /** @class */ (function (_super) {
             _renderHintsSignaling: {
                 value: new RenderHintsSignaling(getTrackReceiver, { log: log }),
             },
+            _publisherHintsSignaling: {
+                value: new PublisherHintsSignaling(getTrackReceiver, { log: log }),
+            },
             _trackPrioritySignaling: {
                 value: new options.TrackPrioritySignaling(getTrackReceiver, { log: log }),
             },
@@ -144,11 +149,15 @@ var RoomV2 = /** @class */ (function (_super) {
         _this._initTrackSwitchOffSignaling();
         _this._initDominantSpeakerSignaling();
         _this._initNetworkQualityMonitorSignaling();
+        _this._initPublisherHintSignaling();
         handleLocalParticipantEvents(_this, localParticipant);
         handlePeerConnectionEvents(_this, peerConnectionManager);
         handleTransportEvents(_this, transport);
         periodicallyPublishStats(_this, transport, options.statsPublishIntervalMs);
         _this._update(initialState);
+        // NOTE(mpatwardhan) after initial state we know if publisher_hints are enabled or not
+        // if they are not enabled. we need to undo simulcast that if it was enabled with initial offer.
+        _this._peerConnectionManager.setEffectiveAdaptiveSimulcast(_this._publisherHintsSignaling.isSetup);
         return _this;
     }
     Object.defineProperty(RoomV2.prototype, "connectionState", {
@@ -402,7 +411,8 @@ var RoomV2 = /** @class */ (function (_super) {
             this._networkQualitySignaling,
             this._trackPrioritySignaling,
             this._trackSwitchOffSignaling,
-            this._renderHintsSignaling
+            this._renderHintsSignaling,
+            this._publisherHintsSignaling
         ].forEach(function (mediaSignaling) {
             var channel = mediaSignaling.channel;
             if (!mediaSignaling.isSetup
@@ -414,6 +424,28 @@ var RoomV2 = /** @class */ (function (_super) {
             }
         });
         return this;
+    };
+    RoomV2.prototype._initPublisherHintSignaling = function () {
+        var _this = this;
+        this._publisherHintsSignaling.on('updated', function (hints, id) {
+            Promise.all(hints.map(function (hint) {
+                return _this.localParticipant.setPublisherHint(hint.track, hint.encodings).then(function (result) {
+                    return { track: hint.track, result: result };
+                });
+            })).then(function (hintResponses) {
+                _this._publisherHintsSignaling.sendHintResponse({ id: id, hints: hintResponses });
+            });
+        });
+        var handleReplaced = function (track) {
+            if (track.kind === 'video') {
+                track.trackTransceiver.on('replaced', function () {
+                    _this._publisherHintsSignaling.sendTrackReplaced({ trackSid: track.sid });
+                });
+            }
+        };
+        // hook up for any existing and new tracks getting replaced.
+        Array.from(this.localParticipant.tracks.values()).forEach(function (track) { return handleReplaced(track); });
+        this.localParticipant.on('trackAdded', function (track) { return handleReplaced(track); });
     };
     RoomV2.prototype._initTrackSwitchOffSignaling = function () {
         var _this = this;

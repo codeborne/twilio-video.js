@@ -67,19 +67,17 @@ var MediaSignaling = /** @class */ (function (_super) {
         var receiverPromise = this._getReceiver(id).then(function (receiver) {
             if (receiver.kind !== 'data') {
                 _this._log.error('Expected a DataTrackReceiver');
-                throw new Error('Expected a DataTrackReceiver');
             }
             if (_this._receiverPromise !== receiverPromise) {
                 return;
             }
             try {
                 _this._transport = receiver.toDataTransport();
+                _this.emit('ready', _this._transport);
             }
             catch (ex) {
-                _this._log.error('Failed to toDataTransport');
-                throw new Error('Failed to toDataTransport');
+                _this._log.error("Failed to toDataTransport: " + ex.message);
             }
-            _this.emit('ready', _this._transport);
             receiver.once('close', function () { return _this._teardown(); });
         });
         this._receiverPromise = receiverPromise;

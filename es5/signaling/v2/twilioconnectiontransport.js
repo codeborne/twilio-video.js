@@ -107,6 +107,9 @@ var TwilioConnectionTransport = /** @class */ (function (_super) {
             _dominantSpeaker: {
                 value: options.dominantSpeaker
             },
+            _adaptiveSimulcast: {
+                value: options.adaptiveSimulcast
+            },
             _eventObserver: {
                 value: options.eventObserver,
                 writable: false
@@ -212,7 +215,7 @@ var TwilioConnectionTransport = /** @class */ (function (_super) {
             if (this._bandwidthProfile) {
                 message.bandwidth_profile = createBandwidthProfilePayload(this._bandwidthProfile);
             }
-            message.media_signaling = createMediaSignalingPayload(this._dominantSpeaker, this._networkQuality, this._trackPriority, this._trackSwitchOff, this._renderHints);
+            message.media_signaling = createMediaSignalingPayload(this._dominantSpeaker, this._networkQuality, this._trackPriority, this._trackSwitchOff, this._adaptiveSimulcast, this._renderHints);
             message.subscribe = createSubscribePayload(this._automaticSubscription);
             var sdpFormat = this._options.sdpFormat;
             if (sdpFormat) {

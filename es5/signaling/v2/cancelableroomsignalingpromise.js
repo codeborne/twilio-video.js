@@ -11,6 +11,7 @@ function createCancelableRoomSignalingPromise(token, wsServer, localParticipant,
         RoomV2: DefaultRoomV2,
         Transport: DefaultTransport
     }, options);
+    var adaptiveSimulcast = preferredCodecs.video[0] && preferredCodecs.video[0].adaptiveSimulcast === true;
     var PeerConnectionManager = options.PeerConnectionManager, RoomV2 = options.RoomV2, Transport = options.Transport, iceServers = options.iceServers, log = options.log;
     var peerConnectionManager = new PeerConnectionManager(encodingParameters, preferredCodecs, options);
     var trackSenders = flatMap(localParticipant.tracks, function (trackV2) { return [trackV2.trackTransceiver]; });
@@ -51,6 +52,7 @@ function createCancelableRoomSignalingPromise(token, wsServer, localParticipant,
         var renderHints = !!bandwidthProfile &&
             (options.clientTrackSwitchOffControl !== 'disabled' || options.contentPreferencesMode !== 'disabled');
         var transportOptions = Object.assign({
+            adaptiveSimulcast: adaptiveSimulcast,
             automaticSubscription: automaticSubscription,
             dominantSpeaker: dominantSpeaker,
             environment: environment,

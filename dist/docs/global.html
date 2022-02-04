@@ -54,7 +54,7 @@
 			<li class="dropdown">
 				<a href="global.html" class="dropdown-toggle" data-toggle="dropdown">Global<b class="caret"></b></a>
 				<ul class="dropdown-menu ">
-					<li><a href="global.html#AudioCodec">AudioCodec</a></li><li><a href="global.html#BandwidthProfileMode">BandwidthProfileMode</a></li><li><a href="global.html#ClientTrackSwitchOffControl">ClientTrackSwitchOffControl</a></li><li><a href="global.html#EventListenerGroup">EventListenerGroup</a></li><li><a href="global.html#EventListenerLevel">EventListenerLevel</a></li><li><a href="global.html#LogLevel">LogLevel</a></li><li><a href="global.html#NetworkQualityVerbosity">NetworkQualityVerbosity</a></li><li><a href="global.html#PreflightProgress">PreflightProgress</a></li><li><a href="global.html#TrackSwitchOffMode">TrackSwitchOffMode</a></li><li><a href="global.html#VideoCodec">VideoCodec</a></li><li><a href="global.html#VideoContentPreferencesMode">VideoContentPreferencesMode</a></li>
+					<li><a href="global.html#AudioCodec">AudioCodec</a></li><li><a href="global.html#BandwidthProfileMode">BandwidthProfileMode</a></li><li><a href="global.html#ClientTrackSwitchOffControl">ClientTrackSwitchOffControl</a></li><li><a href="global.html#EventListenerGroup">EventListenerGroup</a></li><li><a href="global.html#EventListenerLevel">EventListenerLevel</a></li><li><a href="global.html#LogLevel">LogLevel</a></li><li><a href="global.html#NetworkQualityVerbosity">NetworkQualityVerbosity</a></li><li><a href="global.html#PreflightProgress">PreflightProgress</a></li><li><a href="global.html#TrackSwitchOffMode">TrackSwitchOffMode</a></li><li><a href="global.html#VideoCodec">VideoCodec</a></li><li><a href="global.html#VideoContentPreferencesMode">VideoContentPreferencesMode</a></li><li><a href="global.html#VideoEncodingMode">VideoEncodingMode</a></li>
 				</ul>
 			</li>
 			
@@ -2427,6 +2427,138 @@ desired render dimensions for the <a href="RemoteVideoTrack.html">RemoteVideoTra
     
 </dd>
 
+        
+            
+<hr>
+<dt class="name" id="VideoEncodingMode">
+    <h4 id="VideoEncodingMode"><span class="type-signature">&lt;constant&gt; </span>VideoEncodingMode<span class="type-signature"> :string</span></h4>
+
+    
+</dt>
+<dd>
+    
+    <div class="description">
+        <p>Names of the supported VideoEncodingMode.</p>
+    </div>
+    
+
+    
+        <h5>Type:</h5>
+        <ul>
+            <li>
+                
+<span class="param-type">string</span>
+
+
+
+            </li>
+        </ul>
+    
+
+    
+<dl class="details">
+    
+
+    <h5 class="subsection-title">Properties:</h5>
+
+    <dl>
+
+<table class="props table table-striped">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>Auto</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">string</span>
+
+
+
+            
+            </td>
+
+            
+
+            
+                <td class="default">
+                
+                    auto
+                
+                </td>
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+</dl>
+
+    
+
+	
+
+	
+
+	
+
+    
+
+    
+
+    
+
+    
+
+	
+
+	
+
+	
+
+	
+
+	
+
+
+
+	
+
+	
+
+	
+
+	
+</dl>
+
+
+    
+</dd>
+
         </dl>
     
 
@@ -3392,7 +3524,8 @@ A <code>null</code> or <code>0</code> value does not set any bitrate limit;
 This value is set as a hint for variable bitrate codecs, but will not take
 effect for fixed bitrate codecs; Based on our tests, Chrome, Firefox and Safari
 all seem to support an average bitrate range of 20000 bps (20 kbps) to
-8000000 bps (8 mbps) for a 720p VideoTrack</p></td>
+8000000 bps (8 mbps) for a 720p VideoTrack
+This parameter must not be set when when preferredVideoCodecs is set to <code>auto</code>.</p></td>
         </tr>
 
     
@@ -3574,6 +3707,9 @@ An empty array preserves the current audio codec preference order.</p></td>
             
                 
 <span class="param-type">Array.&lt;(<a href="global.html#VideoCodec">VideoCodec</a>|<a href="global.html#VideoCodecSettings">VideoCodecSettings</a>)&gt;</span>
+|
+
+<span class="param-type"><a href="global.html#VideoEncodingMode">VideoEncodingMode</a></span>
 
 
 
@@ -3598,7 +3734,10 @@ An empty array preserves the current audio codec preference order.</p></td>
                 </td>
             
 
-            <td class="description last"><p>Preferred video codecs; An empty array preserves the current video codec
+            <td class="description last"><p>Preferred video codecs; when set to &apos;VideoEncodingMode.Auto&apos;, SDK manages the video codec,
+by preferring VP8 simulcast in group rooms. It also enables adaptive simulcast, which allows SDK
+to turn off simulcast layers that are not needed for efficient bandwidth and CPU usage.
+An empty array preserves the current video codec.
 preference order. If you want to set a preferred video codec on a Group Room,
 you will need to create the Room using the REST API and set the
 <code>VideoCodecs</code> property.
@@ -10462,9 +10601,9 @@ qualities</p></td>
 
 
 <span class="jsdoc-message">
-	Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.7</a>
+	Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.6.9</a>
 	
-		on 2021-10-29T19:10:55+00:00
+		on 2022-01-31T16:27:24+00:00
 	
 	using the <a href="https://github.com/docstrap/docstrap">DocStrap template</a>.
 </span>

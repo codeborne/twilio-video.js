@@ -29,8 +29,9 @@ var EncodingParametersImpl = /** @class */ (function (_super) {
     /**
      * Construct an {@link EncodingParametersImpl}.
      * @param {EncodingParamters} encodingParameters - Initial {@link EncodingParameters}
+     * @param {Boolean} adaptiveSimulcast - true if adaptive simulcast was enabled by connect options.
      */
-    function EncodingParametersImpl(encodingParameters) {
+    function EncodingParametersImpl(encodingParameters, adaptiveSimulcast) {
         var _this = _super.call(this) || this;
         encodingParameters = Object.assign({
             maxAudioBitrate: null,
@@ -44,6 +45,9 @@ var EncodingParametersImpl = /** @class */ (function (_super) {
             maxVideoBitrate: {
                 value: encodingParameters.maxVideoBitrate,
                 writable: true
+            },
+            adaptiveSimulcast: {
+                value: adaptiveSimulcast
             }
         });
         return _this;
